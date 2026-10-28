@@ -424,8 +424,8 @@ ai:
   max_tokens: 5000                  # 最大生成 token 数
                                     # 注意：如果 API 不支持此参数(报 HTTP 400)，请设为 0 以禁用发送
   # 高级选项
-  num_retries: 1                    # 失败重试次数
-  fallback_models: []               # 备用模型列表（可选）
+  num_retries: 3                    # 失败重试次数(Gemini 高峰期偶尔 503,多重试几次)
+  fallback_models: ["gemini/gemini-3.6-flash", "gemini/gemini-3.5-flash-lite"]   # 主模型繁忙时依次改用
                                     # 示例: ["openai/gpt-4o-mini", "openai/deepseek-ai/DeepSeek-V3"]
 
   # 额外参数（一般无需修改，删掉 # 号即可启用）
