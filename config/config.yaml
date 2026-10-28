@@ -127,33 +127,61 @@ rss:
   # - 正整数：覆盖全局设置，只推送此天数内的文章
   # - 0：禁用此频道的新鲜度过滤，推送所有文章
   feeds:
+    # 以下为飞行 / 信用卡羊毛相关博客(地址未在部署前逐一验证,首次运行后请看日志确认能抓到)
+    - id: "doctorofcredit"
+      name: "Doctor of Credit"
+      url: "https://www.doctorofcredit.com/feed/"
+
+    - id: "frequentmiler"
+      name: "Frequent Miler"
+      url: "https://frequentmiler.com/feed/"
+
+    - id: "onemileatatime"
+      name: "One Mile at a Time"
+      url: "https://onemileatatime.com/feed/"
+
+    - id: "viewfromthewing"
+      name: "View from the Wing"
+      url: "https://viewfromthewing.com/feed/"
+
+    - id: "thepointsguy"
+      name: "The Points Guy"
+      url: "https://thepointsguy.com/feed/"
+
+    - id: "uscreditcardguide"
+      name: "美卡指南"
+      url: "https://www.uscreditcardguide.com/feed/"
+
+    # 航空新闻 / 新机型 / 安全 / 新技术(地址未逐一验证)
+    - id: "simpleflying"
+      name: "Simple Flying"
+      url: "https://simpleflying.com/feed/"
+
+    - id: "leehamnews"
+      name: "Leeham News"
+      url: "https://leehamnews.com/feed/"
+
+    - id: "avweb"
+      name: "AVweb"
+      url: "https://www.avweb.com/feed/"
+
+    # 原有的通用源先关闭,避免无关内容
     - id: "hacker-news"
       name: "Hacker News"
       url: "https://hnrss.org/frontpage"
+      enabled: false
 
-    - id: "ruanyifeng"
-      name: "阮一峰的网络日志"
-      url: "http://www.ruanyifeng.com/blog/atom.xml"
-      enabled: false                  # 禁用
-      # max_age_days: 3               # 示例：推送 3 天内的文章（更新较慢的博客）
-     
     - id: "yahoo-finance"
       name: "雅虎财经"
       url: "https://finance.yahoo.com/news/rssindex"
-
-    # 自定义源示例
-    # - id: "custom-feed"
-    #   name: "自定义源"
-    #   url: "https://example.com/feed.xml"
-    #   enabled: false
-    #   max_age_days: 0               # 示例：禁用过滤，推送所有文章
+      enabled: false
 
 
 # ===============================================================
 # 4. 报告模式
 # ===============================================================
 report:
-  mode: "current"                     # 报告模式（开启 schedule 后作为默认值，会被 timeline 时段覆盖）
+  mode: "incremental"                 # 报告模式（开启 schedule 后作为默认值，会被 timeline 时段覆盖）
                                       # daily = 当日汇总，按时推送当天所有匹配新闻（会包含之前推过的）
                                       # current = 当前榜单，按时推送当前在榜的匹配新闻（持续在榜的每次都出现）
                                       # incremental = 增量监控，只推送新增内容，零重复（没有新增时不推送）
