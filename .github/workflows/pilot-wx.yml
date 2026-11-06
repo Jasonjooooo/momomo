@@ -1,0 +1,56 @@
+name: Pilot Weather Briefing
+
+# 飞行天气简报：从 Windy 拉取模式预报，生成离线简报 + 短报文，并推送到已配置的渠道
+# 需要在仓库 Settings → Secrets and variables → Actions 添加：
+#   WINDY_API_KEY   Windy Point Forecast API Key（api.windy.com 申请）
+# 推送渠道与 TrendRadar 共用（BARK_URL / NTFY_TOPIC / TELEGRAM_* / FEISHU / DINGTALK / WEWORK），配一个即可
+
+on:
+  schedule:
+    # 时间为 UTC，北京时间 = UTC + 8
+    # 默认：北京时间每天 06:40、11:40（请按航班时间修改）
+    - cron: "40 22,3 * * *"
+  workflow_dispatch:   # 也可以在 Actions 页面手动点 "Run workflow" 立即生成
+
+permissions:
+  contents: read
+
+jobs:
+  briefing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Install dependencies
+        run: uv sync --frozen --no-dev
+
+      - name: Generate briefing
+        env:
+          WINDY_API_KEY: ${{ secrets.WINDY_API_KEY }}
+          BARK_URL: ${{ secrets.BARK_URL }}
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          NTFY_SERVER_URL: ${{ secrets.NTFY_SERVER_URL }}
+          NTFY_TOKEN: ${{ secrets.NTFY_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+          DINGTALK_WEBHOOK_URL: ${{ secrets.DINGTALK_WEBHOOK_URL }}
+          WEWORK_WEBHOOK_URL: ${{ secrets.WEWORK_WEBHOOK_URL }}
+        run: uv run python -m pilot_wx
+
+      - name: Upload briefing
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pilot-wx-briefing
+          path: output/pilot_wx/
+          retention-days: 7
