@@ -18,8 +18,10 @@
 #   wait: 1.5                            等待秒数
 #   back: null                           按返回键
 #   hide_keyboard: null                  收起键盘
-#   manual: "请选择日期 {日期}"           暂停，让你在手机上手动操作后按回车
-#                                        （日期滚轮、地图选点等难以自动化时用）
+#   wheel: {open: {label: "飞行日期"}, column: "飞行日期"}
+#          点开日期/时间滚轮，把每一列拨到对应的值，再点「确定」（详见下方说明）
+#   manual: "请选择起飞地点 {起飞地点}"     暂停，让你在手机上手动操作后按回车
+#                                        （地图选点等难以自动化时用）
 #
 # 定位控件的方式（任选一种，写在 click / fill / select 里）：
 #   text: 完全相同的文字        text_contains: 包含文字
@@ -33,7 +35,21 @@
 #   value: "{起飞时间}-{降落时间}"         组合多列
 #   map: {"训练": "训练飞行"}             把数据里的值换成 App 里的选项文字
 #   only_if: "备注"                      仅当该列不为空时才执行此步
-#   （fill/select 遇到空值会自动跳过）
+#   （fill/select/wheel 遇到空值会自动跳过）
+#
+# wheel（滚轮）的可选参数：
+#   open:     先点击哪个控件打开滚轮（写法同 click）
+#   confirm:  拨好后点的按钮，默认 "确定"；写 "" 表示不点
+#   wheels:   值的每一段对应第几列滚轮（从 0 开始）。默认 [0,1,2...]
+#             例：滚轮是「年 月 日 时 分」5 列，只填时间 "09:30" → wheels: [3, 4]
+#   pattern:  自定义拆分值的正则，如 "(上午|下午)\\s*(\\d+):(\\d+)"；默认按数字拆
+#   read:     auto(默认，先读界面文字，读不到用 OCR) | text | ocr | blind
+#   area:     滚轮区域 [x1, y1, x2, y2]，像素或 0~1 比例；自动识别不准时填写
+#   count:    area 里有几列（默认=需要的列数）  weights: 各列宽度比例，如 [2,1,1]
+#   center_y: 选中线的纵坐标（默认取区域中心）
+#   item_height / visible_items: 每格高度(px) / 可见行数（默认 5），读不到格高时使用
+#   initial:  读不到任何内容时，按初始值盲拨，如 "now"（手机当前时间）或 "2026-01-01"
+#   settle:   每次拖动后等待滚轮停稳的秒数，默认 0.35
 # =============================================================================
 
 settings:
@@ -49,11 +65,11 @@ before_each:
 
 # 填写表单
 record_steps:
-  - manual: "请在手机上选择飞行日期 {飞行日期}"   # 日期多为滚轮控件；若能直接输入，改成 fill
+  - wheel:  {open: {label: "飞行日期"}, column: "飞行日期", confirm: "确定"}
   - select: {label: "机型", column: "机型"}
   - fill:   {label: "起飞地点", column: "起飞地点"}
-  - fill:   {label: "起飞时间", column: "起飞时间"}
-  - fill:   {label: "降落时间", column: "降落时间"}
+  - wheel:  {open: {label: "起飞时间"}, column: "起飞时间"}   # 若能直接输入，改成 fill
+  - wheel:  {open: {label: "降落时间"}, column: "降落时间"}
   - fill:   {label: "飞行时长", column: "飞行时长(分钟)"}
   - select: {label: "飞行性质", column: "飞行性质"}
   - fill:   {label: "备注", column: "备注"}

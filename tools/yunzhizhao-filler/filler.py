@@ -309,6 +309,171 @@ class Device:
         el.click()
         time.sleep(self.step_delay)
 
+    # ---------- 滚轮 ----------
+    def _hier_nodes(self):
+        import xml.etree.ElementTree as ET
+        return list(ET.fromstring(self.d.dump_hierarchy(compressed=False)).iter("node"))
+
+    def _wheel_columns(self, spec: dict, need: int):
+        from wheel_picker import Column, resolve_area, split_area
+
+        w, h = self.d.window_size()
+        if spec.get("area"):
+            area = resolve_area(spec["area"], w, h)
+            return split_area(area, int(spec.get("count", need)), spec.get("weights")), "area"
+
+        nodes = self._hier_nodes()
+        # 1) 原生 NumberPicker（系统 DatePicker / TimePicker 滚轮模式）
+        nps = [n for n in nodes if n.get("class", "").endswith("NumberPicker")]
+        if nps:
+            cols = [Column(*parse_bounds(n.get("bounds"))) for n in nps]
+            return sorted(cols, key=lambda c: c.left), "numberpicker"
+
+        # 2) 可滚动的窄列（RecyclerView / ListView / ScrollView 实现的滚轮）
+        sc = []
+        for n in nodes:
+            if n.get("scrollable") != "true":
+                continue
+            l, t, r, b = parse_bounds(n.get("bounds"))
+            if (r - l) < 0.75 * w and (b - t) < 0.6 * h and r > l and b > t:
+                sc.append(Column(l, t, r, b))
+        def inside(a, b):  # a 在 b 内部
+            return a is not b and b.left <= a.left and b.right >= a.right and b.top <= a.top and b.bottom >= a.bottom
+        sc = [c for c in sc if not any(inside(o, c) for o in sc)]  # 只保留最内层
+        if len(sc) >= need:
+            return sorted(sc, key=lambda c: c.left), "scrollable"
+
+        # 3) 猜测：「确定」按钮下方到屏幕底部为滚轮区域，按列数等分
+        confirm = spec.get("confirm", "确定")
+        btn = self.d(text=confirm)
+        if btn.exists:
+            _, _, _, bb = parse_bounds(btn.info["bounds"])
+            bottom = int(h * float(spec.get("area_bottom", 0.97)))
+            if bottom - bb > 100:
+                return split_area((0, bb + 10, w, bottom), int(spec.get("count", need)), spec.get("weights")), "guess"
+        raise LookupError("找不到滚轮。请打开滚轮后运行 dump 查看，或在 wheel 中配置 area")
+
+    def _read_hier(self, col):
+        from wheel_picker import Item
+
+        items = []
+        for n in self._hier_nodes():
+            t = n.get("text") or n.get("content-desc") or ""
+            if not t.strip():
+                continue
+            l, tp, r, b = parse_bounds(n.get("bounds"))
+            cx, cy = (l + r) / 2, (tp + b) / 2
+            if col.left <= cx <= col.right and col.top <= cy <= col.bottom and (b - tp) < col.height * 0.8:
+                items.append(Item(t, cy))
+        return items
+
+    def _ocr_engine(self):
+        if getattr(self, "_ocr", None) is None:
+            try:
+                from rapidocr_onnxruntime import RapidOCR
+            except ImportError:
+                try:
+                    from rapidocr import RapidOCR
+                except ImportError:
+                    self._ocr = False
+                    return None
+            self._ocr = RapidOCR()
+        return self._ocr or None
+
+    def _read_ocr(self, col):
+        import numpy as np
+        from wheel_picker import Item
+
+        eng = self._ocr_engine()
+        if not eng:
+            return []
+        img = self.d.screenshot()  # PIL.Image
+        crop = img.crop((col.left, col.top, col.right, col.bottom)).convert("RGB")
+        res = eng(np.array(crop))
+        if isinstance(res, tuple):  # rapidocr_onnxruntime: (result, elapse)
+            res = res[0] or []
+            boxes = [(r[0], r[1]) for r in res]
+        else:  # rapidocr >= 2
+            boxes = list(zip(res.boxes if res.boxes is not None else [], res.txts or []))
+        items = []
+        for box, text in boxes:
+            ys = [p[1] for p in box]
+            items.append(Item(str(text), col.top + (min(ys) + max(ys)) / 2))
+        return items
+
+    def _drag_no_fling(self, x, y0, y1):
+        """按下 → 缓慢移动 → 停顿 → 抬起：抬手速度为 0，滚轮不会惯性甩动"""
+        steps = max(8, int(abs(y1 - y0) / 15))
+        t = self.d.touch
+        t.down(x, y0)
+        time.sleep(0.05)
+        for k in range(1, steps + 1):
+            t.move(x, y0 + (y1 - y0) * k / steps)
+            time.sleep(0.012)
+        time.sleep(0.25)
+        t.up(x, y1)
+        time.sleep(self.wheel_settle)
+
+    def wheel(self, spec: dict, value: str):
+        from wheel_picker import WheelColumnDriver, WheelError, blind_set, split_value, to_int
+
+        if spec.get("open"):  # 先点开滚轮
+            self.click(locator_of(spec["open"]))
+            time.sleep(0.6)
+        self.wheel_settle = float(spec.get("settle", 0.35))
+        parts = split_value(value, spec.get("pattern"))
+        targets = spec.get("wheels") or list(range(len(parts)))
+        if len(targets) != len(parts):
+            raise ValueError(f"「{value}」拆成了 {len(parts)} 段 {parts}，但 wheels 配了 {len(targets)} 列")
+        cols, how = self._wheel_columns(spec, max(targets) + 1)
+        if max(targets) >= len(cols):
+            raise LookupError(f"只识别到 {len(cols)} 列滚轮（方式：{how}），但需要第 {max(targets) + 1} 列，请配置 area/count")
+        print(f"      识别到 {len(cols)} 列滚轮（{how}），设置为 {parts}")
+
+        mode = str(spec.get("read", "auto"))  # auto | text | ocr | blind
+        initial = None
+        if spec.get("initial") is not None:
+            init = str(spec["initial"])
+            if init.startswith("now"):
+                fmt = spec.get("initial_format") or {2: "%H:%M", 3: "%Y-%m-%d"}.get(len(parts), "%Y-%m-%d %H:%M")
+                phone_now = self.d.shell(["date", "+%Y-%m-%d %H:%M:%S"]).output.strip()
+                init = dt.datetime.strptime(phone_now, "%Y-%m-%d %H:%M:%S").strftime(fmt)
+            initial = split_value(init, spec.get("pattern"))
+
+        for k, (part, ci) in enumerate(zip(parts, targets)):
+            col = cols[ci]
+            if spec.get("center_y") is not None:
+                cy = float(spec["center_y"])
+                col.center_y = cy * self.d.window_size()[1] if cy <= 1 else cy
+
+            def reader(c, _m=mode):
+                if _m == "blind":
+                    return []
+                its = self._read_hier(c) if _m in ("auto", "text") else []
+                if not its and _m in ("auto", "ocr"):
+                    its = self._read_ocr(c)
+                return its
+
+            drv = WheelColumnDriver(col, reader, self._drag_no_fling,
+                                    item_height=spec.get("item_height"),
+                                    visible_items=int(spec.get("visible_items", 3 if how == "numberpicker" else 5)),
+                                    log=print)
+            try:
+                drv.set(part)
+            except WheelError as e:
+                if initial is None or "读不到" not in str(e):
+                    raise
+                ih = spec.get("item_height") or col.height / int(spec.get("visible_items", 5))
+                cur = to_int(initial[k])
+                print(f"      读不到内容，按初始值 {initial[k]} 盲拨到 {part}（格高 {ih:.0f}px）")
+                blind_set(col, self._drag_no_fling, cur, to_int(part), ih, int(spec.get("direction", 1)))
+
+        if spec.get("confirm", "确定"):
+            btn = self.d(text=spec.get("confirm", "确定"))
+            if btn.exists:
+                btn.click()
+                time.sleep(self.step_delay)
+
     def back(self):
         self.d.press("back")
         time.sleep(self.step_delay)
@@ -349,6 +514,11 @@ class Device:
                 extra = f"  desc={desc!r}" if desc else ""
                 extra += f"  id={rid}" if rid else ""
                 print(f"  {text!r}{extra}{flag}")
+        wheels = [n for n in root.iter("node") if n.get("class", "").endswith("NumberPicker") or n.get("scrollable") == "true"]
+        if wheels:
+            print("\n== 可滚动区域 / 滚轮（wheel 会自动识别；识别不对时把位置填到 area）==")
+            for n in wheels:
+                print(f"  {n.get('class', '').split('.')[-1]}  位置={n.get('bounds')}  id={n.get('resource-id') or '-'}")
         print("\n== 输入框（按从上到下排序，可用于 input_index / id / hint）==")
         inputs.sort(key=lambda x: (parse_bounds(x[0])[1], parse_bounds(x[0])[0]))
         for b, text, rid in inputs:
@@ -362,6 +532,9 @@ class DryRunDevice:
     def click(self, loc): print(f"    点击 {loc}")
     def fill(self, loc, value): print(f"    填写 {loc} ← {value!r}")
     def select(self, loc, value, option_loc=None): print(f"    选择 {loc} → {value!r}")
+    def wheel(self, spec, value):
+        from wheel_picker import split_value
+        print(f"    滚轮{' (先点 ' + str(spec['open']) + ')' if spec.get('open') else ''} → {split_value(value, spec.get('pattern'))}，然后点「{spec.get('confirm', '确定')}」")
     def back(self): print("    返回键")
     def hide_keyboard(self): print("    收起键盘")
     def screenshot(self, path): print(f"    截图 → {path}")
@@ -398,7 +571,7 @@ def run_steps(dev, steps: list, row: dict[str, str], interactive: bool):
         if not isinstance(step, dict) or len(step) == 0:
             raise ValueError(f"第 {i} 步格式不对：{step}")
         action, spec = next(iter(step.items()))
-        if isinstance(spec, dict) and spec.get("skip_if_empty", True) and action in ("fill", "select"):
+        if isinstance(spec, dict) and spec.get("skip_if_empty", True) and action in ("fill", "select", "wheel"):
             if step_value(spec, row) == "":
                 print(f"    （「{spec.get('column', spec.get('value'))}」为空，跳过）")
                 continue
@@ -416,6 +589,8 @@ def run_steps(dev, steps: list, row: dict[str, str], interactive: bool):
             dev.fill(locator_of(spec), step_value(spec, row))
         elif action == "select":
             dev.select(locator_of(spec), step_value(spec, row), spec.get("option"))
+        elif action == "wheel":
+            dev.wheel(spec, step_value(spec, row))
         elif action == "wait":
             time.sleep(float(spec))
         elif action == "back":
@@ -431,7 +606,7 @@ def run_steps(dev, steps: list, row: dict[str, str], interactive: bool):
             if ask(f"    ✋ {msg}，完成后按回车（q 退出）：") == "q":
                 raise Paused()
         else:
-            raise ValueError(f"不认识的动作「{action}」，可用：click / click_if_exists / fill / select / wait / back / hide_keyboard / manual")
+            raise ValueError(f"不认识的动作「{action}」，可用：click / click_if_exists / fill / select / wheel / wait / back / hide_keyboard / manual")
 
 
 def save_progress(data_file: str, index: int):
@@ -548,6 +723,20 @@ def cmd_dump(args):
     Device(args.serial, cfg.get("settings", {}) or {}).dump()
 
 
+def cmd_wheel(args):
+    """手机上先打开滚轮，然后直接测试拨动，例如：python filler.py wheel "09:30" --wheels 3 4"""
+    cfg = {}
+    if Path(args.config).exists():
+        cfg = yaml.safe_load(Path(args.config).read_text(encoding="utf-8")) or {}
+    spec = {"confirm": args.confirm, "read": args.read}
+    if args.wheels:
+        spec["wheels"] = args.wheels
+    if args.area:
+        spec["area"] = args.area
+    Device(args.serial, cfg.get("settings", {}) or {}).wheel(spec, args.value)
+    print("完成")
+
+
 def cmd_template(args):
     out = Path(args.output)
     if out.exists():
@@ -575,6 +764,14 @@ def main(argv=None):
 
     d = sub.add_parser("dump", help="显示当前屏幕上的文字和输入框")
     d.set_defaults(func=cmd_dump)
+
+    w = sub.add_parser("wheel", help="调试：把当前已打开的滚轮拨到指定值")
+    w.add_argument("value", help='如 "2026-11-01" 或 "09:30"')
+    w.add_argument("--wheels", type=int, nargs="+", help="每段对应第几列，如 3 4")
+    w.add_argument("--area", type=float, nargs=4, help="滚轮区域 x1 y1 x2 y2（像素或 0~1 比例）")
+    w.add_argument("--read", default="auto", choices=["auto", "text", "ocr", "blind"])
+    w.add_argument("--confirm", default="", help='拨好后点的按钮，默认不点；如 "确定"')
+    w.set_defaults(func=cmd_wheel)
 
     t = sub.add_parser("template", help="生成数据模板 CSV")
     t.add_argument("-o", "--output", default="flights.csv")

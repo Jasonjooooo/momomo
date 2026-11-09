@@ -42,9 +42,31 @@ python filler.py template -o flights.csv
    - `before_each`：进入新增页面要点的按钮（如「添加记录」）
    - `record_steps`：每个字段用 `fill`（输入框）或 `select`（点开后选择）
    - `submit_steps`：提交按钮文字
-   - 日期滚轮、地图选点这类难以自动操作的控件，用 `manual` 暂停让你手动点一下，其余字段仍自动填写
+   - 日期 / 时间滚轮用 `wheel`（见下一节）
+   - 地图选点这类难以自动操作的控件，用 `manual` 暂停让你手动点一下，其余字段仍自动填写
 
 配置里每种写法都有注释说明。
+
+## 三-B、日期 / 时间滚轮
+
+```yaml
+- wheel: {open: {label: "飞行日期"}, column: "飞行日期"}   # "2026-11-01" → 年/月/日三列
+- wheel: {open: {label: "起飞时间"}, column: "起飞时间"}   # "09:30" → 时/分两列
+```
+
+工作方式：点开滚轮 → 自动识别每一列 → 读出当前值 → 计算差几格，用「按住慢拖、停顿、松手」的方式拖动（不会甩飞）→ 反复校正直到选中目标 → 点「确定」。
+
+- **读取当前值**：先读界面文字；读不到（App 用自绘滚轮）时自动截图 OCR，需额外安装：
+  ```bash
+  pip install rapidocr_onnxruntime
+  ```
+- **单独调试滚轮**：手机上先把滚轮打开，然后运行：
+  ```bash
+  python filler.py wheel "09:30" --confirm 确定
+  ```
+- 滚轮是「年月日时分」一个整体时，用 `wheels` 指定每段对应第几列，例如只填时间：`wheels: [3, 4]`。
+- 自动识别的区域不对时，`dump` 会列出可滚动区域的位置，填到 `area: [x1, y1, x2, y2]`。
+- 分钟滚轮如果是 5 分钟一格，数据里的时间也要是 5 的倍数，否则会提示「滚不到」。
 
 ## 四、开始录入
 
@@ -80,3 +102,13 @@ python filler.py run -d flights.xlsx --auto
 | 中文输入不了 | 重新执行 `python -m uiautomator2 init`，并允许其输入法 |
 | 选项选不中 | 用 `map:` 把数据里的值换成 App 里显示的选项文字 |
 | App 页面是 H5/小程序，dump 看不到文字 | 用 `input_index`，或该字段用 `manual` |
+| 滚轮拨不准 / 读不到 | 安装 OCR；调大 `settle`；配置 `area`；实在不行设 `initial: now` 按格数盲拨 |
+| 滚轮列识别错位 | 用 `wheels` 指定列号，或 `area` + `count` 手动划分 |
+
+## 测试
+
+```bash
+python tests/test_wheel.py          # 滚轮算法（模拟循环、倒序、拖动误差等）
+python tests/test_device_wheel.py   # 完整流程（模拟手机界面）
+python tests/test_ocr_wheel.py      # OCR 识别自绘滚轮（需安装 rapidocr_onnxruntime）
+```

@@ -1,3 +1,5 @@
 uiautomator2>=3.0
 openpyxl>=3.1
 pyyaml>=6.0
+# 可选：App 的滚轮是自绘控件、界面里读不到文字时，用 OCR 识别截图
+# rapidocr_onnxruntime>=1.3
