@@ -1,0 +1,82 @@
+# 云执照飞行记录自动录入工具（安卓）
+
+把飞行记录整理在 Excel 里，电脑通过 USB 控制手机，自动在「云执照」App 中逐条新增飞行记录。
+
+> 仅支持 **安卓手机**。iPhone 需要 Mac + Appium/WebDriverAgent，本工具暂不支持。
+> 工具只模拟你自己的点击和输入，不破解 App、不调用其接口；请确保录入的是真实飞行记录。
+
+## 一、准备（只需一次）
+
+1. 电脑安装 **Python 3.9+**（Windows 安装时勾选 *Add Python to PATH*）。
+2. 安装依赖：
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. 手机开启 **开发者选项 → USB 调试**（设置 → 关于手机 → 连续点「版本号」7 次可打开开发者选项）。
+   小米/OPPO/vivo 等还需打开「USB 调试（安全设置）」/「允许模拟点击」。
+4. 用数据线连接电脑，手机上点「允许 USB 调试」。
+5. 初始化（会在手机上装一个 ATX 小助手，用于读取界面、输入中文）：
+   ```bash
+   python -m uiautomator2 init
+   ```
+
+## 二、整理数据
+
+```bash
+python filler.py template -o flights.csv
+```
+
+用 Excel 打开 `flights.csv` 填写，第一行是表头（列名可以随便改，只要和 `config.yaml` 里的 `column` 对应），保存为 `.xlsx` 或 `.csv` 都可以。也可以直接用你现有的飞行记录表。
+
+## 三、按你的 App 界面调整配置（最关键）
+
+各版本 App 的按钮文字、字段名可能不同，`config.yaml` 里的是示例：
+
+1. 手机打开云执照 → 进入「新增飞行记录」页面。
+2. 运行：
+   ```bash
+   python filler.py dump
+   ```
+   会打印出当前屏幕上所有的文字和输入框。
+3. 对照输出修改 `config.yaml`：
+   - `before_each`：进入新增页面要点的按钮（如「添加记录」）
+   - `record_steps`：每个字段用 `fill`（输入框）或 `select`（点开后选择）
+   - `submit_steps`：提交按钮文字
+   - 日期滚轮、地图选点这类难以自动操作的控件，用 `manual` 暂停让你手动点一下，其余字段仍自动填写
+
+配置里每种写法都有注释说明。
+
+## 四、开始录入
+
+先预览，不连手机，检查数据和步骤是否对得上：
+
+```bash
+python filler.py run -d flights.xlsx --dry-run
+```
+
+先录 1 条试试（默认是**逐条确认**：填好后你在手机上看一眼，回车才提交）：
+
+```bash
+python filler.py run -d flights.xlsx --limit 1
+```
+
+确认没问题后，全自动批量录入：
+
+```bash
+python filler.py run -d flights.xlsx --auto
+```
+
+- 中途退出后再次运行，会提示从上次的位置继续；也可以用 `--start 8` 指定从第 8 条开始。
+- 某条出错时会自动截图到 `screenshots/`，逐条模式下可选择重试 / 跳过 / 手动完成。
+- 手机较慢时，把 `config.yaml` 里的 `step_delay`、`find_timeout` 调大。
+- 无线连接：`adb tcpip 5555` 后用 `python filler.py -s 手机IP:5555 run ...`。
+
+## 常见问题
+
+| 现象 | 处理 |
+| --- | --- |
+| 找不到控件 | 用 `dump` 看实际文字，改 `text` / `label`；字段在屏幕下方时会自动滚动查找 |
+| 输入框填错位置 | 改用 `hint: "请输入xxx"` 或 `id:` 精确定位 |
+| 中文输入不了 | 重新执行 `python -m uiautomator2 init`，并允许其输入法 |
+| 选项选不中 | 用 `map:` 把数据里的值换成 App 里显示的选项文字 |
+| App 页面是 H5/小程序，dump 看不到文字 | 用 `input_index`，或该字段用 `manual` |
