@@ -172,3 +172,38 @@ def test_buttons_bottom():
 
 if __name__ == "__main__":
     test_buttons_bottom()
+
+
+class FakeH5NeedsTwoTaps(FakeH5):
+    """真机现象：上一个输入框还在输入状态时，第一下点「出发时刻」只会取消焦点，第二下才弹出滚轮"""
+    def __init__(self, h, m):
+        super().__init__(h, m)
+        self.open, self.taps = False, 0
+
+    def dump_hierarchy(self, compressed=False):
+        if self.open:
+            return super().dump_hierarchy()
+        return ('<hierarchy><node class="android.webkit.WebView" text="" scrollable="true" bounds="[0,130][1260,2720]">'
+                '<node class="android.view.View" text="出发时刻" bounds="[143,1094][918,1155]"/>'
+                '<node class="android.widget.EditText" resource-id="TAKETIME-time" text="" bounds="[1033,1077][1176,1173]"/>'
+                '</node></hierarchy>')
+
+    def on_tap(self, x, y):
+        if not self.open:
+            self.taps += 1
+            if self.taps >= 2 and 1033 <= x <= 1176 and 1077 <= y <= 1173:
+                self.open = True
+            return
+        super().on_tap(x, y)
+
+
+def test_open_needs_two_taps():
+    dev = object.__new__(filler.Device)
+    dev.d, dev.timeout, dev.max_scrolls, dev.step_delay, dev.fast = FakeH5NeedsTwoTaps(0, 0), 1, 0, 0, True
+    dev.wheel({"open": {"id": "TAKETIME-time", "label": "出发时刻"}, "confirm": "确定", "offscreen": True}, "09:30")
+    assert dev.d.taps == 2 and dev.d.pos == [9, 30], (dev.d.taps, dev.d.pos)
+    print("✓ 第一下点击未弹出滚轮时自动再点一次")
+
+
+if __name__ == "__main__":
+    test_open_needs_two_taps()

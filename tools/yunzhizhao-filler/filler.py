@@ -664,8 +664,18 @@ class Device:
 
         if spec.get("open"):  # 先点开滚轮
             t0 = time.time()
-            self.click(locator_of(spec["open"]))
-            time.sleep(0.8)
+            confirm_name = spec.get("confirm") or "确定"
+            opened = False
+            for attempt in range(3):
+                # 上一个输入框还在输入状态时，第一下点击往往只是让它失去焦点，滚轮不会弹出，需要再点一次
+                self.click(locator_of(spec["open"]))
+                time.sleep(0.8)
+                if not self.fast or self._find_node({"text": confirm_name}):
+                    opened = True
+                    break
+                print(f"      滚轮没有弹出，再点一次（第 {attempt + 2} 次）")
+            if not opened:
+                raise LookupError(f"点了 3 次 {spec['open']} 都没有弹出滚轮（没看到「{confirm_name}」按钮）")
             print(f"      打开滚轮用时 {time.time() - t0:.1f}s")
         self.wheel_settle = float(spec.get("settle", 0.3))
         self.wheel_steps = int(spec.get("drag_steps", 6))
