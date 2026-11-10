@@ -278,7 +278,7 @@ class Device:
     FAST_KEYS = {"id", "text", "text_contains", "hint", "desc"}
 
     def _can_fast(self, loc: dict) -> bool:
-        return self.fast and bool(set(loc) & (self.FAST_KEYS | {"label"})) and not (set(loc) & {"input_index", "class", "nth"})
+        return self.fast and bool(set(loc) & (self.FAST_KEYS | {"label", "ocr"})) and not (set(loc) & {"input_index", "class", "nth"})
 
     @staticmethod
     def _norm_label(t: str) -> str:
@@ -315,6 +315,22 @@ class Device:
                     x = min((r_ + w) / 2, w - 60)
                     print(f"      （界面数据里没有「{loc['label']}」，按截图文字定位）")
                     return (int(x - 30), int(tp), int(x + 30), int(b)), None
+        if "ocr" in loc:  # 按截图里的文字直接点（如按钮「保存」）
+            b = self._ocr_find(loc["ocr"])
+            if b:
+                print(f"      （按截图文字「{loc['ocr']}」定位）")
+                return b, None
+        return None
+
+    def _ocr_find(self, text: str):
+        """在截图里找文字完全相同的位置（忽略空格），返回 bounds"""
+        if not self._ocr_engine():
+            return None
+        want = self._norm_label(text)
+        _, h = self.d.window_size()
+        for t, l, tp, r_, b in self._ocr_tokens(self.d.screenshot()):
+            if self._norm_label(t) == want and tp > h * 0.05:
+                return int(l), int(tp), int(r_), int(b)
         return None
 
     def _scroll_page_by(self, dy: int):
@@ -935,6 +951,44 @@ class Device:
         time.sleep(self.step_delay)
         print(f"      已选 {y}-{m:02d}-{d:02d}（用时 {time.time() - t0:.1f}s）")
 
+    # ---------- 页面跳转 ----------
+    def tap_spec(self, spec: dict):
+        """依次尝试 try 里的定位方式，都找不到时点 xy（屏幕比例坐标，如 [0.93, 0.086]）"""
+        for loc in spec.get("try", []):
+            loc = locator_of(loc)
+            if self.exists(loc):
+                self.click(loc)
+                print(f"      点了 {loc}")
+                return
+        if "xy" in spec:
+            w, h = self.d.window_size()
+            x, y = spec["xy"]
+            x, y = (x * w if x <= 1 else x), (y * h if y <= 1 else y)
+            self._tap(x, y)
+            print(f"      按位置点 ({int(x)},{int(y)})")
+            time.sleep(self.step_delay)
+            return
+        raise LookupError(f"找不到要点的控件：{spec.get('try')}")
+
+    def wait_for(self, spec: dict, gone: bool = False):
+        """等待控件出现（gone=True 时等待消失），超时报错"""
+        loc = locator_of(spec)
+        timeout = float(spec.get("timeout", 10))
+        end = time.time() + timeout
+        while time.time() < end:
+            if not gone:
+                found = self._find_fast(loc) if self._can_fast(loc) else self._find_once(loc, False)
+            else:
+                # 判断「消失」要严格：界面数据里没有，且（配置了 ocr 时）截图里也看不到，才算消失
+                found = (self._find_node_bounds(loc) if set(loc) & self.FAST_KEYS else None)
+                if not found and "ocr" in loc:
+                    found = self._ocr_find(loc["ocr"])
+            if bool(found) != gone:
+                return
+            time.sleep(0.5)
+        what = "消失" if gone else "出现"
+        raise TimeoutError(spec.get("message") or f"等了 {timeout:.0f} 秒，{loc} 没有{what}")
+
     def wheel_debug(self, spec: dict, need: int, out: Path):
         """不拖动，只把识别到的列区域和读到的数字画在截图上"""
         from PIL import ImageDraw
@@ -1082,6 +1136,9 @@ class DryRunDevice:
     def click(self, loc): print(f"    点击 {loc}")
     def fill(self, loc, value): print(f"    填写 {loc} ← {value!r}")
     def select(self, loc, value, option_loc=None): print(f"    选择 {loc} → {value!r}")
+    def tap_spec(self, spec): print(f"    点 {spec.get('try')}，找不到就按位置 {spec.get('xy')}")
+    def wait_for(self, spec, gone=False): print(f"    等待 {locator_of(spec)} {'消失' if gone else '出现'}")
+
     def date(self, spec, value):
         print(f"    日历 (先点 {spec.get('open')}) → {value}，然后点「{spec.get('confirm', '设置')}」")
 
@@ -1098,7 +1155,7 @@ class DryRunDevice:
 # 执行流程
 # =============================================================================
 LOCATOR_KEYS = {"text", "text_contains", "id", "desc", "desc_contains", "hint", "class", "nth",
-                "label", "input_index", "scroll"}
+                "label", "input_index", "scroll", "ocr"}
 
 
 def locator_of(spec) -> dict:
@@ -1131,6 +1188,10 @@ def run_steps(dev, steps: list, row: dict[str, str], interactive: bool):
         if isinstance(spec, dict) and "only_if" in spec:  # 只有当某列有值时才执行
             if not row.get(spec["only_if"], ""):
                 continue
+        if isinstance(spec, dict) and "unless_exists" in spec:  # 某控件已存在时跳过（如已在新增页面就不点「+」）
+            if dev.exists(locator_of(spec["unless_exists"])):
+                print(f"    （已存在 {spec['unless_exists']}，跳过这一步）")
+                continue
 
         t_step = time.time()
         if not isinstance(dev, DryRunDevice) and action in ("click", "fill", "select", "wheel", "date"):
@@ -1151,6 +1212,12 @@ def run_steps(dev, steps: list, row: dict[str, str], interactive: bool):
             dev.wheel(spec, step_value(spec, row))
         elif action == "date":
             dev.date(spec, step_value(spec, row))
+        elif action == "tap":
+            dev.tap_spec(spec)
+        elif action == "wait_for":
+            dev.wait_for(spec)
+        elif action == "wait_gone":
+            dev.wait_for(spec, gone=True)
         elif action == "wait":
             time.sleep(float(spec))
         elif action == "back":
@@ -1166,7 +1233,7 @@ def run_steps(dev, steps: list, row: dict[str, str], interactive: bool):
             if ask(f"    ✋ {msg}，完成后按回车（q 退出）：") == "q":
                 raise Paused()
         else:
-            raise ValueError(f"不认识的动作「{action}」，可用：click / click_if_exists / fill / select / wheel / date / wait / back / hide_keyboard / manual")
+            raise ValueError(f"不认识的动作「{action}」，可用：click / click_if_exists / tap / wait_for / wait_gone / fill / select / wheel / date / wait / back / hide_keyboard / manual")
 
 
 def save_progress(data_file: str, index: int):

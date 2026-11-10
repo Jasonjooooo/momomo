@@ -28,6 +28,9 @@ class FakeForm:
         self.saved = False
         self.ime = "com.huawei.ohos.inputmethod/.SoftKeyboard"
         self.cmds = 0
+        self.page = "form"   # form | list
+        self.saved_rows = []
+        self.plus_taps = 0
 
     def window_size(self): return W, H
 
@@ -35,6 +38,11 @@ class FakeForm:
         return 500 + FIELDS.index(f) * ROW - self.scroll
 
     def dump_hierarchy(self, compressed=False):
+        if self.page == "list":
+            return ('<hierarchy><node class="android.webkit.WebView" text="" bounds="[0,130][1260,2720]">'
+                    '<node class="android.view.View" text="飞行记录" bounds="[400,180][860,290]"/>'
+                    '<node class="android.view.View" text="" bounds="[1120,180][1230,290]"/>'
+                    '</node></hierarchy>')
         out = ['<hierarchy><node class="android.webkit.WebView" text="" scrollable="true" bounds="[0,130][1260,2720]">']
         for f in FIELDS:
             y = self.y_of(f)
@@ -51,6 +59,8 @@ class FakeForm:
             # 真机现象：登记号处于输入状态时，起飞站整行（含标签）都从界面数据里消失
             if f == "TAKEADD" and self.focus == "AIRREGNUM":
                 out.pop()  # 去掉刚加的标签
+                continue
+            if f == "subbtn" and self.focus == "REMARK":  # 备注输入中，保存按钮从界面数据消失
                 continue
             if f == "JOB_dummy":  # 隐藏的 <select>，只有 11px
                 out.append(f'<node class="android.view.View" resource-id="JOB" text="{txt}" bounds="[613,{t + 60}][624,{t + 71}]"/>')
@@ -80,6 +90,11 @@ class FakeForm:
         m = re.match(r"input tap (\d+) (\d+)", cmd)
         if m:
             x, y = int(m.group(1)), int(m.group(2))
+            if self.page == "list":
+                if x > 1100 and 180 < y < 290:  # 右上角「+」
+                    self.plus_taps += 1
+                    self.__init_form()
+                return SimpleNamespace(output="")
             if self.dialog:
                 i = (y - 900) // 150
                 if 0 <= i < len(JOBS):
@@ -92,6 +107,8 @@ class FakeForm:
                 self.dialog = True
             elif f == "subbtn":
                 self.saved = True
+                self.saved_rows.append(dict(self.values))
+                self.page = "list"
             else:
                 self.focus = f
         if cmd.startswith("input keyevent KEYCODE_MOVE_END"):
@@ -103,12 +120,23 @@ class FakeForm:
             self.scroll = max(0, min(2000, self.scroll + (y0 - y1)))
         return SimpleNamespace(output="")
 
+    def __init_form(self):
+        keep = (self.saved_rows, self.plus_taps, self.ime, self.cmds)
+        self.__init__()
+        self.saved_rows, self.plus_taps, self.ime, self.cmds = keep
+
     def screenshot(self):
         from PIL import Image, ImageDraw, ImageFont
         img = Image.new("RGB", (W, H), "white")
         dr = ImageDraw.Draw(img)
         f = ImageFont.truetype("/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc", 46)
         dr.rectangle((0, 0, W, HEADER), fill="#1a3a8a")
+        if self.page == "list":
+            dr.text((630, 235), "飞行记录", font=f, fill="white", anchor="mm"); dr.text((1175, 235), "+", font=f, fill="white", anchor="mm")
+            return img
+        sb = self.y_of("subbtn")
+        if HEADER < sb < H - 95:
+            dr.text((900, sb + 20), "保  存", font=f, fill="#000")
         for fld in FIELDS:
             y = self.y_of(fld)
             if HEADER < y and y + 95 < H and fld in LABELS:
@@ -149,7 +177,7 @@ def test_fill_and_select():
         {"fill": {"id": "ZHUOLUYEJIAN", "label": "夜间", "column": "夜间"}},
         {"fill": {"id": "REMARK", "label": "备注", "column": "备注"}},
         {"hide_keyboard": None},
-        {"click": {"id": "subbtn"}},
+        {"click": {"id": "subbtn", "ocr": "保存"}},
     ]
     filler.run_steps(dev, steps, row, interactive=False)
     v = dev.d.values
@@ -162,5 +190,30 @@ def test_fill_and_select():
     print(f"✓ 快速填写整页（共 {dev.d.cmds} 条 adb 命令），结束后已切回原输入法")
 
 
+def test_multi_rows():
+    """连续两条：第一条已在新增页（不点+）；备注后保存按钮从界面数据消失，靠截图文字点保存；
+    保存后回列表页，点右上角+进入下一条"""
+    import yaml
+    cfg = yaml.safe_load((Path(__file__).resolve().parents[1] / "config.yaml").read_text(encoding="utf-8"))
+    keep = lambda steps: [st for st in steps if next(iter(st)) not in ("date", "wheel", "select")]  # noqa: E731
+    dev = make()
+    dev.d.page = "form"
+    rows = [{"航班号": "A1", "航空器登记号": "B-1", "起飞站": "ZBAA", "降落站": "ZSSS", "备注": "第一条",
+             "昼间着陆次数": "1", "夜间着陆次数": ""},
+            {"航班号": "A2", "航空器登记号": "B-2", "起飞站": "ZSSS", "降落站": "ZBAA", "备注": "第二条",
+             "昼间着陆次数": "2", "夜间着陆次数": ""}]
+    for row in rows:
+        filler.run_steps(dev, cfg["before_each"], row, False)
+        filler.run_steps(dev, keep(cfg["record_steps"]), row, False)
+        filler.run_steps(dev, cfg["submit_steps"], row, False)
+    saved = dev.d.saved_rows
+    assert [r["AIRNUM"] for r in saved] == ["A1", "A2"], saved
+    assert [r["REMARK"] for r in saved] == ["第一条", "第二条"]
+    assert saved[1]["AIRMODEL"] == "PC-12" and dev.d.plus_taps == 1, (saved[1]["AIRMODEL"], dev.d.plus_taps)
+    dev.restore()
+    print("✓ 连续两条：保存 → 回列表 → 点「+」→ 第二条，两条都已保存")
+
+
 if __name__ == "__main__":
     test_fill_and_select()
+    test_multi_rows()
