@@ -813,6 +813,116 @@ class Device:
             time.sleep(self.step_delay)
             print(f"      点「{name}」用时 {time.time() - t0:.1f}s")
 
+    # ---------- 系统日历（DatePickerDialog）----------
+    _TITLE_RE = re.compile(r"^\s*(\d{4})\s*年\s*(\d{1,2})\s*月\s*$")
+
+    def _date_screen(self):
+        """读取日历当前状态：返回 {"title": (年, 月, bounds), "days": {日: bounds}, "prev": b, "next": b, "ok": b}
+        先读界面数据（系统控件一般都能读到），读不到的部分用整屏 OCR 补"""
+        info = {"days": {}}
+        nodes = self._hier_nodes()
+        for n in nodes:
+            t = (n.get("text") or "").strip()
+            desc = (n.get("content-desc") or "").strip()
+            rid = n.get("resource-id") or ""
+            b = parse_bounds(n.get("bounds"))
+            m = self._TITLE_RE.match(t) or self._TITLE_RE.match(desc)
+            if m and "title" not in info:
+                info["title"] = (int(m.group(1)), int(m.group(2)), b)
+            if rid.endswith(":id/prev") or desc in ("上个月", "Previous month"):
+                info["prev"] = b
+            if rid.endswith(":id/next") or desc in ("下个月", "Next month"):
+                info["next"] = b
+            if t == self._date_ok_name:
+                info["ok"] = b
+            if re.fullmatch(r"\d{1,2}", t) and b[2] - b[0] >= 20:
+                info["days"].setdefault(int(t), []).append(b)
+        def only_in_dialog(days):
+            """只保留标题下方、「设置」上方的日期格子（排除页面背景里的数字）"""
+            if "title" not in info:
+                return {}
+            ty, okb = info["title"][2][3], info.get("ok")
+            out = {dd: [bb for bb in bs if bb[1] > ty + 40 and (not okb or bb[3] < okb[1])] for dd, bs in days.items()}
+            return {dd: bs for dd, bs in out.items() if bs}
+
+        info["days"] = only_in_dialog(info["days"])
+        if "title" not in info or not info["days"] or "ok" not in info:
+            ocr_days = {}
+            for t, l, tp, r, bt in self._ocr_tokens(self.d.screenshot()):
+                t2 = t.replace(" ", "")
+                bb = (int(l), int(tp), int(r), int(bt))
+                m = self._TITLE_RE.match(t2)
+                if m and "title" not in info:
+                    info["title"] = (int(m.group(1)), int(m.group(2)), bb)
+                elif t2 == self._date_ok_name and "ok" not in info:
+                    info["ok"] = bb
+                elif re.fullmatch(r"\d{1,2}", t2):
+                    ocr_days.setdefault(int(t2), []).append(bb)
+            if not info["days"]:
+                info["days"] = only_in_dialog(ocr_days)
+        return info
+
+    def date(self, spec: dict, value: str):
+        """在系统日历里选日期：翻到目标年月 → 点日 → 点「设置」"""
+        from wheel_picker import split_value
+
+        parts = [int(x) for x in split_value(value, spec.get("pattern"))]
+        if len(parts) < 3:
+            raise ValueError(f"日期「{value}」格式不对，应为 2026-11-01")
+        y, m, d = parts[:3]
+        self._date_ok_name = spec.get("confirm", "设置")
+        w, h = self.d.window_size()
+        t0 = time.time()
+        if spec.get("open"):
+            for attempt in range(3):
+                self.click(locator_of(spec["open"]))
+                time.sleep(0.8)
+                if "title" in self._date_screen():
+                    break
+                print(f"      日历没有弹出，再点一次（第 {attempt + 2} 次）")
+            else:
+                raise LookupError("点了 3 次都没有弹出日历")
+        for _ in range(int(spec.get("max_months", 60))):
+            info = self._date_screen()
+            if "title" not in info:
+                raise LookupError("读不到日历顶部的年月")
+            cy, cm, tb = info["title"]
+            diff = (y - cy) * 12 + (m - cm)
+            if diff == 0:
+                break
+            key = "next" if diff > 0 else "prev"
+            if key in info:
+                b = info[key]
+                x, yy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+            else:  # 箭头在标题左右两侧
+                x = (tb[0] + tb[2]) / 2 + (0.30 if diff > 0 else -0.30) * w
+                yy = (tb[1] + tb[3]) / 2
+            print(f"      当前 {cy}年{cm}月 → 目标 {y}年{m}月，点{'下' if diff > 0 else '上'}个月")
+            self._tap(x, yy)
+            time.sleep(0.4)
+        else:
+            raise LookupError("翻月次数过多")
+        info = self._date_screen()
+        if d in info["days"]:
+            b = info["days"][d][0]
+            x, yy = (b[0] + b[2]) / 2, (b[1] + b[3]) / 2
+        else:
+            # 个别日期没读到（OCR 对单个数字容易漏）：用读到的日期拟合网格，推算目标格子的位置
+            pos = calendar_grid_position(y, m, d, info["days"])
+            if pos is None:
+                raise LookupError(f"日历里找不到 {d} 日（读到：{sorted(info['days'])}）")
+            x, yy = pos
+            print(f"      {d} 日未直接读到，按网格推算位置 ({int(x)},{int(yy)})")
+        self._tap(x, yy)
+        time.sleep(0.4)
+        ok = info.get("ok") or self._date_screen().get("ok")
+        if ok:
+            self._tap((ok[0] + ok[2]) / 2, (ok[1] + ok[3]) / 2)
+        elif not self._fast_click({"text": self._date_ok_name}):
+            raise LookupError(f"找不到「{self._date_ok_name}」按钮")
+        time.sleep(self.step_delay)
+        print(f"      已选 {y}-{m:02d}-{d:02d}（用时 {time.time() - t0:.1f}s）")
+
     def wheel_debug(self, spec: dict, need: int, out: Path):
         """不拖动，只把识别到的列区域和读到的数字画在截图上"""
         from PIL import ImageDraw
@@ -916,12 +1026,53 @@ class Device:
             input_idx += 1
 
 
+def calendar_grid_position(year: int, month: int, day: int, seen: dict):
+    """日历按 7 列网格排布。用已读到的日期 {日: [bounds]} 拟合列宽/行高，推算 day 的格子中心。
+    周日开头、周一开头两种排法都试，取误差小的。至少需要 2 个不同行、不同列的日期。"""
+    import calendar as _cal
+    import statistics as st
+
+    pts = [(dd, (bs[0][0] + bs[0][2]) / 2, (bs[0][1] + bs[0][3]) / 2) for dd, bs in seen.items()]
+    if len(pts) < 3:
+        return None
+    best = None
+    for sunday_first in (True, False):
+        first = _cal.monthrange(year, month)[0]  # 周一=0
+        col0 = (first + 1) % 7 if sunday_first else first
+
+        def rc(dd):
+            i = col0 + dd - 1
+            return i // 7, i % 7
+
+        cws, chs = [], []
+        for a in range(len(pts)):
+            for b in range(a + 1, len(pts)):
+                (ra, ca), (rb, cb) = rc(pts[a][0]), rc(pts[b][0])
+                if ca != cb:
+                    cws.append((pts[b][1] - pts[a][1]) / (cb - ca))
+                if ra != rb:
+                    chs.append((pts[b][2] - pts[a][2]) / (rb - ra))
+        if not cws or not chs:
+            continue
+        cw, ch = st.median(cws), st.median(chs)
+        x0 = st.median(px - rc(dd)[1] * cw for dd, px, _ in pts)
+        y0 = st.median(py - rc(dd)[0] * ch for dd, _, py in pts)
+        err = sum(abs(px - (x0 + rc(dd)[1] * cw)) + abs(py - (y0 + rc(dd)[0] * ch)) for dd, px, py in pts)
+        r, c = rc(day)
+        if best is None or err < best[0]:
+            best = (err, (x0 + c * cw, y0 + r * ch))
+    return best[1] if best else None
+
+
 class DryRunDevice:
     """不连手机，只打印动作，用来检查配置和数据是否对得上"""
 
     def click(self, loc): print(f"    点击 {loc}")
     def fill(self, loc, value): print(f"    填写 {loc} ← {value!r}")
     def select(self, loc, value, option_loc=None): print(f"    选择 {loc} → {value!r}")
+    def date(self, spec, value):
+        print(f"    日历 (先点 {spec.get('open')}) → {value}，然后点「{spec.get('confirm', '设置')}」")
+
     def wheel(self, spec, value):
         from wheel_picker import split_value
         print(f"    滚轮{' (先点 ' + str(spec['open']) + ')' if spec.get('open') else ''} → {split_value(value, spec.get('pattern'))}，然后点「{spec.get('confirm', '确定')}」")
@@ -961,7 +1112,7 @@ def run_steps(dev, steps: list, row: dict[str, str], interactive: bool):
         if not isinstance(step, dict) or len(step) == 0:
             raise ValueError(f"第 {i} 步格式不对：{step}")
         action, spec = next(iter(step.items()))
-        if isinstance(spec, dict) and spec.get("skip_if_empty", True) and action in ("fill", "select", "wheel"):
+        if isinstance(spec, dict) and spec.get("skip_if_empty", True) and action in ("fill", "select", "wheel", "date"):
             if step_value(spec, row) == "":
                 print(f"    （「{spec.get('column', spec.get('value'))}」为空，跳过）")
                 continue
@@ -970,7 +1121,7 @@ def run_steps(dev, steps: list, row: dict[str, str], interactive: bool):
                 continue
 
         t_step = time.time()
-        if not isinstance(dev, DryRunDevice) and action in ("click", "fill", "select", "wheel"):
+        if not isinstance(dev, DryRunDevice) and action in ("click", "fill", "select", "wheel", "date"):
             what = spec if isinstance(spec, str) else (spec.get("column") or locator_of(spec))
             val = step_value(spec, row) if isinstance(spec, dict) and action != "click" else ""
             print(f"    → {action} {what}{' = ' + val if val else ''}", flush=True)
@@ -986,6 +1137,8 @@ def run_steps(dev, steps: list, row: dict[str, str], interactive: bool):
             dev.select(locator_of(spec), step_value(spec, row), spec.get("option"))
         elif action == "wheel":
             dev.wheel(spec, step_value(spec, row))
+        elif action == "date":
+            dev.date(spec, step_value(spec, row))
         elif action == "wait":
             time.sleep(float(spec))
         elif action == "back":
@@ -1001,7 +1154,7 @@ def run_steps(dev, steps: list, row: dict[str, str], interactive: bool):
             if ask(f"    ✋ {msg}，完成后按回车（q 退出）：") == "q":
                 raise Paused()
         else:
-            raise ValueError(f"不认识的动作「{action}」，可用：click / click_if_exists / fill / select / wheel / wait / back / hide_keyboard / manual")
+            raise ValueError(f"不认识的动作「{action}」，可用：click / click_if_exists / fill / select / wheel / date / wait / back / hide_keyboard / manual")
 
 
 def save_progress(data_file: str, index: int):
