@@ -101,7 +101,7 @@ class FakeForm:
                     self.page = "list"
                 return SimpleNamespace(output="")
             if self.page == "list":
-                if x > 1100 and 180 < y < 290:  # 右上角「+」
+                if 1060 < x < 1200 and 310 < y < 460:  # 「飞行经历」行右侧的「+」（真机位置）
                     self.plus_taps += 1
                     self.__init_form()
                 return SimpleNamespace(output="")
@@ -145,7 +145,7 @@ class FakeForm:
             dr.text((250, 1360), "提交成功", font=f, fill="#000"); dr.text((1020, 1610), "关闭", font=f, fill="#099", anchor="mm")
             return img
         if self.page == "list":
-            dr.text((630, 235), "飞行记录", font=f, fill="white", anchor="mm"); dr.text((1175, 235), "+", font=f, fill="white", anchor="mm")
+            dr.text((630, 235), "记录本", font=f, fill="white", anchor="mm"); dr.text((1127, 380), "+", font=f, fill="#333", anchor="mm")
             return img
         sb = self.y_of("subbtn")
         if HEADER < sb < H - 95:

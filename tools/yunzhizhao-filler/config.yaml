@@ -75,6 +75,7 @@ before_each:
 # 填写表单（id 来自 dump 输出）
 record_steps:
   # id 是控件编号；label 是该行左侧的文字，id 找不到时（App 网页在输入状态下会隐藏相邻输入框的 id）按 label 定位
+  # 按截图文字定位标签时，默认点屏幕宽度 85% 处（右侧输入框）；输入框在中间的用 tap_x 指定
   # 日期：系统日历，自动翻月、点日、点「设置」
   - date:   {open: {label: "日期"}, column: "日期", confirm: "设置"}
   - fill:   {id: "AIRNUM",    label: "航班号",       column: "航班号"}
@@ -95,8 +96,8 @@ record_steps:
   - wheel:  {open: {id: "YEJIANTIME",     label: "夜间飞行经历时间"}, column: "夜间飞行经历时间", confirm: "确定", offscreen: true}
   - wheel:  {open: {id: "YIBIAOTIME",     label: "真实仪表时间"},     column: "真实仪表时间", confirm: "确定", offscreen: true}
   - wheel:  {open: {id: "ZHUANCHANGTIME", label: "转场时间"},         column: "转场时间", confirm: "确定", offscreen: true}
-  - fill:   {id: "ZHUOLUZHOUJIAN", label: "昼间", column: "昼间着陆次数"}
-  - fill:   {id: "ZHUOLUYEJIAN",   label: "夜间", column: "夜间着陆次数"}
+  - fill:   {id: "ZHUOLUZHOUJIAN", label: "昼间", tap_x: 0.55, column: "昼间着陆次数"}
+  - fill:   {id: "ZHUOLUYEJIAN",   label: "夜间", tap_x: 0.55, column: "夜间着陆次数"}
   - fill:   {id: "REMARK",         label: "备注", column: "备注"}
   - hide_keyboard: null
 

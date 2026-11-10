@@ -304,7 +304,7 @@ class Device:
                     if b - t < 20:
                         continue
                     # 标签节点可能很宽（延伸到中间），取它右边缘和屏幕右边的中点作为输入区域
-                    x = min((r_ + w) / 2, w - 60)
+                    x = loc["tap_x"] * w if loc.get("tap_x") else min((r_ + w) / 2, w - 60)
                     return (int(x - 30), t, int(x + 30), b), None
             # 输入状态下 App 网页有时把整行（连标签）都从界面数据里藏起来：改用 OCR 在截图里找标签文字
             if self._ocr_engine():
@@ -315,7 +315,8 @@ class Device:
                         cands.append((l, tp, r_, b))
                 if cands:
                     l, tp, r_, b = min(cands, key=lambda c: c[0])
-                    x = min((r_ + w) / 2, w - 60)
+                    # OCR 只框住标签文字本身，输入框在行的右侧：默认点屏幕宽度 85% 处（可用 tap_x 指定）
+                    x = float(loc.get("tap_x", 0.85)) * w
                     print(f"      （界面数据里没有「{loc['label']}」，按截图文字定位）")
                     return (int(x - 30), int(tp), int(x + 30), int(b)), None
         if "ocr" in loc:  # 按截图里的文字直接点（如按钮「保存」）
@@ -1158,7 +1159,7 @@ class DryRunDevice:
 # 执行流程
 # =============================================================================
 LOCATOR_KEYS = {"text", "text_contains", "id", "desc", "desc_contains", "hint", "class", "nth",
-                "label", "input_index", "scroll", "ocr"}
+                "label", "input_index", "scroll", "ocr", "tap_x"}
 
 
 def locator_of(spec) -> dict:
