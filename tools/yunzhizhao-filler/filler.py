@@ -447,7 +447,7 @@ class Device:
         t.move(x, y1)
         time.sleep(getattr(self, "wheel_hold", 0.15))
         t.up(x, y1)
-        time.sleep(self.wheel_settle)
+        self._need_settle = True
 
     def wheel(self, spec: dict, value: str):
         from wheel_picker import WheelColumnDriver, WheelError, blind_set, split_value, to_int
@@ -456,8 +456,8 @@ class Device:
             self.click(locator_of(spec["open"]))
             time.sleep(0.6)
         self.wheel_settle = float(spec.get("settle", 0.3))
-        self.wheel_steps = int(spec.get("drag_steps", 12))
-        self.wheel_hold = float(spec.get("hold", 0.15))
+        self.wheel_steps = int(spec.get("drag_steps", 6))
+        self.wheel_hold = float(spec.get("hold", 0.12))
         _, scr_h = self.d.window_size()
         parts = split_value(value, spec.get("pattern"))
         targets = spec.get("wheels") or list(range(len(parts)))
@@ -494,13 +494,38 @@ class Device:
                         return its
                 return self._read_hier(c)
 
-            drv = WheelColumnDriver(col, reader, self._drag_no_fling,
+            stat = {"reads": 0, "rt": 0.0, "drags": 0, "dt": 0.0}
+
+            def timed_reader(c, _r=reader, _s=stat):
+                t0 = time.time()
+                if getattr(self, "_need_settle", False):  # 只在读数前等滚轮停稳，连续拖动之间不等
+                    time.sleep(self.wheel_settle)
+                    self._need_settle = False
+                try:
+                    return _r(c)
+                finally:
+                    _s["reads"] += 1
+                    _s["rt"] += time.time() - t0
+
+            def timed_drag(x, y0, y1, _s=stat):
+                t0 = time.time()
+                self._drag_no_fling(x, y0, y1)
+                _s["drags"] += 1
+                _s["dt"] += time.time() - t0
+                print(f"        拖动 {int(y0)}→{int(y1)}（{int(y0 - y1):+d}px）用时 {time.time() - t0:.1f}s")
+
+            cyc = spec.get("cyclic")
+            modulus = (cyc[k] if isinstance(cyc, list) else cyc) if cyc else None
+            t_col = time.time()
+            drv = WheelColumnDriver(col, timed_reader, timed_drag, modulus=modulus,
                                     item_height=spec.get("item_height"),
                                     visible_items=int(spec.get("visible_items", 3 if how == "numberpicker" else 5)),
                                     log=print,
                                     limits=None if spec.get("short_drag") else (scr_h * 0.08, scr_h * 0.96))
             try:
                 drv.set(part)
+                print(f"      第 {ci} 列完成：共 {time.time() - t_col:.1f}s ｜ 读数 {stat['reads']} 次 {stat['rt']:.1f}s ｜ "
+                      f"拖动 {stat['drags']} 次 {stat['dt']:.1f}s ｜ 格高约 {drv.item_height or 0:.0f}px ｜ 列区域 y={col.top}~{col.bottom}")
             except WheelError as e:
                 if initial is None or "读不到" not in str(e):
                     raise
@@ -509,6 +534,9 @@ class Device:
                 print(f"      读不到内容，按初始值 {initial[k]} 盲拨到 {part}（格高 {ih:.0f}px）")
                 blind_set(col, self._drag_no_fling, cur, to_int(part), ih, int(spec.get("direction", 1)))
 
+        if getattr(self, "_need_settle", False):
+            time.sleep(self.wheel_settle)
+            self._need_settle = False
         if spec.get("confirm", "确定"):
             btn = self.d(text=spec.get("confirm", "确定"))
             if btn.exists:
@@ -812,6 +840,8 @@ def cmd_wheel(args):
         spec["wheels"] = args.wheels
     if args.area:
         spec["area"] = args.area
+    if args.cyclic:
+        spec["cyclic"] = args.cyclic
     dev = Device(args.serial, cfg.get("settings", {}) or {})
     if args.debug:
         from wheel_picker import split_value
@@ -856,6 +886,7 @@ def main(argv=None):
     w.add_argument("--area", type=float, nargs=4, help="滚轮区域 x1 y1 x2 y2（像素或 0~1 比例）")
     w.add_argument("--read", default="auto", choices=["auto", "text", "ocr", "blind"])
     w.add_argument("--confirm", default="", help='拨好后点的按钮，默认不点；如 "确定"')
+    w.add_argument("--cyclic", type=int, nargs="+", help="循环滚轮每列的格数，如时分滚轮：--cyclic 24 60")
     w.add_argument("--debug", action="store_true", help="不拖动，只保存标注了识别区域的截图 wheel_debug.png")
     w.set_defaults(func=cmd_wheel)
 

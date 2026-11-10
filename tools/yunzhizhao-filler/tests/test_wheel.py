@@ -137,6 +137,14 @@ def test_long_drag_inexact_ratio():
         assert n <= 8, n
 
 
+def test_cyclic_shortest():
+    a = SimWheel(range(60), 5, cyclic=True)
+    na = run(a, "55")
+    b = SimWheel(range(60), 5, cyclic=True)
+    nb = run(b, "55", modulus=60)
+    assert nb < na, (na, nb)
+
+
 def test_blind():
     sim = SimWheel(range(60), 10, cyclic=True)
     blind_set(sim.col, sim.drag, 10, 47, sim.item_h)

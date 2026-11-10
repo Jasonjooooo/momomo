@@ -105,7 +105,7 @@ class WheelColumnDriver:
     def __init__(self, col: Column, read: Reader, drag: Dragger, *,
                  item_height: float | None = None, visible_items: int = 5,
                  max_chunk: int = 3, max_iter: int = 80, log: Callable[[str], None] | None = None,
-                 limits: tuple[float, float] | None = None):
+                 limits: tuple[float, float] | None = None, modulus: int | None = None):
         self.col = col
         self.read = read
         self.drag = drag
@@ -113,6 +113,7 @@ class WheelColumnDriver:
         self.visible_items = visible_items
         self.max_chunk = max_chunk
         self.max_iter = max_iter
+        self.modulus = modulus  # 循环滚轮的格数（如分钟 60），给出时走较短的方向
         self.limits = limits  # 允许手指移动到的屏幕纵向范围；给出时可一次拖很多格
         self.log = log or (lambda s: None)
         self._direction = None  # 数字随 y 增大而增大为 +1，减小为 -1
@@ -187,6 +188,17 @@ class WheelColumnDriver:
             return None
         return min(items, key=lambda i: abs(i.cy - self.col.cy))
 
+    def _drag_cost(self, n_items: float, item_h: float) -> float:
+        """估算需要拖几次（考虑上下可拖动空间不同）"""
+        import math
+        if not self.limits:
+            return math.ceil(abs(n_items) / self.max_chunk)
+        lo, hi = self.limits
+        m = min(item_h * 0.5, self.col.height * 0.2)
+        room = (self.col.bottom - m - lo) if n_items > 0 else (hi - self.col.top - m)
+        cap = max(1, int(room // item_h))
+        return math.ceil(abs(n_items) / cap) + abs(n_items) * 1e-3
+
     def _drag_items(self, n_items: float, item_h: float):
         """内容向上移动 n_items 格（n<0 则向下）。分段拖动，每段不超过 max_chunk 格。"""
         remaining = n_items
@@ -247,6 +259,10 @@ class WheelColumnDriver:
                     if (ti - cons) % st:
                         raise WheelError(f"「{target}」不在可选项里（这一列每格相差 {st}）")
                     diff = (ti - cons) // st * (self._direction or 1)
+                    if self.modulus:
+                        n = self.modulus // st
+                        alt = diff - n if diff > 0 else diff + n  # 绕另一圈
+                        diff = min((diff, alt), key=lambda d: self._drag_cost(d, item_h))
                     if diff == 0:  # 值对了但没对齐中线：把最近的一格拖到中线
                         self.drag(self.col.cx, cur.cy, self.col.cy)
                         continue

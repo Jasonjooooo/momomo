@@ -82,6 +82,8 @@ def main():
     assert dev.d.confirmed
     dev.wheel({"confirm": "确定"}, "23:05")
     assert dev.d.pos == [23, 5], dev.d.pos
+    dev.wheel({"confirm": "确定", "cyclic": [24, 60]}, "09:30")
+    assert dev.d.pos == [9, 30], dev.d.pos
     print("✓ H5 时/分滚轮：00:00 → 09:30 → 23:05")
 
 
