@@ -410,13 +410,13 @@ class Device:
             time.sleep(0.6)
             for attempt in range(10):
                 nodes = self._hier_nodes()
-                r = self._find_node({"text": value}, nodes) or self._find_node({"text_contains": value}, nodes)
-                if not r and attempt == 0 and self._find_node({"text": "确定"}, nodes):
-                    # 弹出的是自绘文字滚轮（选项不在界面数据里）：用 OCR 读选项、拖到中间、点确定
-                    print("      选项是滚轮形式，按文字滚轮处理")
+                if attempt == 0 and self._find_node({"text": "确定"}, nodes):
+                    # 弹出的是自绘选择框（滚轮或点选列表，选项不在界面数据里；页面上显示的当前值不能当选项点）
+                    print("      弹出的是自绘选择框，用 OCR 定位选项")
                     self.wheel({"confirm": "确定", "pattern": r"^(.*)$", "match": "contains",
-                                "read": "ocr", "count": 1, "offscreen": True}, value)
+                                "read": "ocr", "count": 1, "offscreen": True, "tap_target": True}, value)
                     return
+                r = self._find_node({"text": value}, nodes) or self._find_node({"text_contains": value}, nodes)
                 if r:
                     b = r[0]
                     self._tap((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)
@@ -673,6 +673,10 @@ class Device:
     def _wheel(self, spec: dict, value: str):
         from wheel_picker import WheelColumnDriver, WheelError, blind_set, split_value, to_int
 
+        if spec.get("open") and getattr(self, "fast", False) and self._find_node({"text": "取消"}) and self._find_node({"text": "确定"}):
+            print("      发现上一个选择框还开着，先点「取消」关掉")
+            self._fast_click({"text": "取消"})
+            time.sleep(0.6)
         if spec.get("open"):  # 先点开滚轮
             t0 = time.time()
             confirm_name = spec.get("confirm") or "确定"
@@ -774,9 +778,22 @@ class Device:
         if getattr(self, "_need_settle", False):
             time.sleep(self.wheel_settle)
             self._need_settle = False
+        if spec.get("tap_target"):
+            # 点选式列表需要点一下选项才算选中；滚轮型点一下已居中的选项也无妨
+            from wheel_picker import contains
+            col = cols[targets[0]]
+            hits = [it for it in self._read_ocr(col) if contains(it.text, parts[0])]
+            if hits:
+                h = min(hits, key=lambda it: abs(it.cy - col.cy))
+                self._tap(col.cx, h.cy)
+                time.sleep(0.5)
+                print(f"      点选「{h.text}」")
         if spec.get("confirm", "确定"):
             t0 = time.time()
             name = spec.get("confirm", "确定")
+            if getattr(self, "fast", False) and not self._find_node({"text": name}):
+                print(f"      选择框已关闭，不用再点「{name}」")
+                return
             tok = [t for t in getattr(self, "_last_tokens", []) if t[0].strip() == name]
             if tok:  # 整屏 OCR 时已经看到「确定」的位置
                 _, l, tp, r, b = tok[0]

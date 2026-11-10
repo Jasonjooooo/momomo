@@ -264,3 +264,68 @@ def test_select_text_wheel():
 
 if __name__ == "__main__":
     test_select_text_wheel()
+
+
+class FakeListPicker(FakeTextPicker):
+    """真机「进近方式」：点选式列表（蓝色为选中项，点一下才选中），页面上该行本身显示着当前值 ILS CAT1"""
+    OPTS = ["ILS CAT1", "ILS CAT2", "ILS CAT3", "RNP LNAV", "RNP L/VNAV", "NDB", "VOR", "目视(visual)", "LOC/DME", "其它(other)"]
+    TOP = 1900
+
+    def __init__(self):
+        super().__init__()
+        self.scroll, self.sel = 0, 0
+
+    def dump_hierarchy(self, compressed=False):
+        bg = ('<node class="android.view.View" text="进近方式" bounds="[53,1389][617,1446]"/>'
+              f'<node class="android.view.View" resource-id="YIBIAOTYPE" text="{self.value}" bounds="[613,1400][624,1411]"/>'
+              f'<node class="android.widget.EditText" resource-id="YIBIAOTYPE_dummy" text="{self.value}" bounds="[620,1371][1176,1464]"/>')
+        pk = ('<node class="android.view.View" text="确定" bounds="[1080,1690][1220,1770]"/>'
+              '<node class="android.view.View" text="取消" bounds="[40,1690][180,1770]"/>') if self.open else ""
+        return f'<hierarchy><node class="android.webkit.WebView" text="" scrollable="true" bounds="[0,130][1260,2720]">{bg}{pk}</node></hierarchy>'
+
+    def item_y(self, i):
+        return self.TOP + i * 172 - self.scroll
+
+    def screenshot(self):
+        img = Image.new("RGB", (W, H), "white")
+        d = ImageDraw.Draw(img)
+        fs = ImageFont.truetype(FONT, 50)
+        d.text((150, 1400), "进近方式", font=fs, fill="#000"); d.text((800, 1400), self.value, font=fs, fill="#000")
+        if self.open:
+            d.rectangle((0, 1620, W, H), fill="#f6f6f6")
+            d.text((40, 1700), "取消", font=fs, fill="#1677ff"); d.text((1100, 1700), "确定", font=fs, fill="#1677ff")
+            for i, o in enumerate(self.OPTS):
+                y = self.item_y(i)
+                if 1800 < y < H - 20:
+                    d.text((W / 2, y), o, font=fs, fill="#1677ff" if i == self.sel else "#000", anchor="mm")
+        return img
+
+    def on_tap(self, x, y):
+        if not self.open:
+            if 620 <= x <= 1176 and 1371 <= y <= 1464:
+                self.open = True
+            return
+        if 1080 <= x <= 1220 and 1690 <= y <= 1770:
+            self.value, self.open = self.OPTS[self.sel], False
+            return
+        for i in range(len(self.OPTS)):
+            if abs(self.item_y(i) - y) < 80:
+                self.sel = i
+
+    def drag(self, x, y0, y1):
+        max_scroll = max(0, self.TOP + len(self.OPTS) * 172 - (H - 100))
+        self.scroll = max(0, min(max_scroll, self.scroll + (y0 - y1)))
+
+
+def test_select_list_picker():
+    for want, expect in (("VOR", "VOR"), ("ILS CAT1", "ILS CAT1"), ("其它", "其它(other)"), ("RNP L/VNAV", "RNP L/VNAV")):
+        dev = object.__new__(filler.Device)
+        dev.d, dev.timeout, dev.max_scrolls, dev.step_delay, dev.fast = FakeListPicker(), 1, 0, 0, True
+        dev.d.value = "ILS CAT1"
+        dev.select({"id": "YIBIAOTYPE_dummy", "label": "进近方式"}, want)
+        assert dev.d.value == expect and not dev.d.open, (want, dev.d.value, dev.d.open)
+    print("✓ 点选式列表：VOR / ILS CAT1 / 其它(other) / RNP L/VNAV 都能选中并确定")
+
+
+if __name__ == "__main__":
+    test_select_list_picker()

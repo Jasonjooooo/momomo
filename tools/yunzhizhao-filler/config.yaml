@@ -74,7 +74,7 @@ record_steps:
   # id 是控件编号；label 是该行左侧的文字，id 找不到时（App 网页在输入状态下会隐藏相邻输入框的 id）按 label 定位
   - manual: "TODO 请手动选择【日期】{日期}"
   - fill:   {id: "AIRNUM",    label: "航班号",       column: "航班号"}
-  - fill:   {id: "AIRMODEL",  label: "航空器型号",   column: "航空器型号"}
+  - fill:   {id: "AIRMODEL",  label: "航空器型号",   column: "航空器型号", default: "PC-12"}
   - fill:   {id: "AIRREGNUM", label: "航空器登记号", column: "航空器登记号"}
   - fill:   {id: "TAKEADD",   label: "起飞站",       column: "起飞站"}
   - fill:   {id: "ARRVADD",   label: "降落站",       column: "降落站"}

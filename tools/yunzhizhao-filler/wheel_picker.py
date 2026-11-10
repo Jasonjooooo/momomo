@@ -120,7 +120,8 @@ class WheelColumnDriver:
         self.visible_items = visible_items
         self.max_chunk = max_chunk
         self.max_iter = max_iter
-        self.match = (lambda text, t: contains(text, t)) if match == "contains" else (lambda text, t: same(text, t))
+        self.text_mode = match == "contains"  # 文字选项（如「ILS CAT1」）：不按数字处理
+        self.match = (lambda text, t: contains(text, t)) if self.text_mode else (lambda text, t: same(text, t))
         self.modulus = modulus  # 循环滚轮的格数（如分钟 60），给出时走较短的方向
         self.limits = limits  # 允许手指移动到的屏幕纵向范围；给出时可一次拖很多格
         self.log = log or (lambda s: None)
@@ -239,7 +240,9 @@ class WheelColumnDriver:
 
     # --- 主流程 ---
     def set(self, target: str) -> str:
-        self._numeric_target = to_int(target) is not None
+        self._numeric_target = to_int(target) is not None and not self.text_mode
+        self._last_hit = None
+        self.uncentered = False
         last_center = None
         stuck = 0
         search_dir = 1
@@ -251,7 +254,7 @@ class WheelColumnDriver:
             self._update_direction(items)
             item_h = self._est_item_h(items)
             cur = self._center_item(items)
-            ti = to_int(target)
+            ti = None if self.text_mode else to_int(target)
             if ti is not None:
                 cons = self._consensus(items, item_h)
                 snapped = abs(cur.cy - self.col.cy) <= item_h / 2
@@ -288,6 +291,11 @@ class WheelColumnDriver:
             hit = [i for i in items if self.match(i.text, target)]
             if hit:
                 h = min(hit, key=lambda i: abs(i.cy - self.col.cy))
+                # 拖了也不动（列表到头了，或者是点选式列表）：交给调用方直接点它
+                if self._last_hit is not None and abs(h.cy - self._last_hit) < 15:
+                    self.uncentered = True
+                    return h.text
+                self._last_hit = h.cy
                 self.drag(self.col.cx, h.cy, self.col.cy)
                 continue
 
@@ -302,7 +310,7 @@ class WheelColumnDriver:
                     raise WheelError(f"滚不到「{target}」，当前停在「{cur.text}」（可能超出可选范围）")
 
             ti, ci = to_int(target), to_int(cur.text)
-            if ti is not None and ci is not None:
+            if ti is not None and ci is not None and not self.text_mode:
                 direction = self._direction or 1
                 diff = (ti - ci) * direction  # >0 表示目标在下方，需要内容上移
                 self.log(f"      当前 {cur.text} → 目标 {target}，拖动 {diff:+d} 格")
