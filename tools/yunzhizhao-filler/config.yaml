@@ -90,7 +90,10 @@ record_steps:
   # 下拉框：点 _dummy（显示当前值的那个框）；选项文字只要包含表格里的值即可，如「机长」
   # default：表格里没填时选它；以后在 Excel 的「职位」「进近方式」列里填写即可逐条指定
   - select: {id: "JOB_dummy",        label: "职位",     column: "职位",     default: "机长"}
-  - select: {id: "YIBIAOTYPE_dummy", label: "进近方式", column: "进近方式", default: "ILS CAT1"}
+  # 进近方式是点选列表，默认已选中 ILS CAT1：选别的要先点 ILS CAT1 取消，再点目标（deselect_current）
+  # 读不到当前值时按 ILS CAT1 处理（assume_current）；目标就是 ILS CAT1 时不打开
+  - select: {id: "YIBIAOTYPE_dummy", label: "进近方式", column: "进近方式", default: "ILS CAT1",
+             deselect_current: true, assume_current: "ILS CAT1"}
   # 飞行经历时间由 App 根据出发/到达时刻自动计算，不用填
   # 以下时间字段若与出发时刻是同一种滚轮即可自动；表格里留空则跳过
   - wheel:  {open: {id: "YEJIANTIME",     label: "夜间飞行经历时间"}, column: "夜间飞行经历时间", confirm: "确定", offscreen: true}

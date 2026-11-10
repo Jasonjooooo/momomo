@@ -86,10 +86,22 @@ def looks_like_item(text: str) -> bool:
     return bool(_ITEM.match(re.sub(r"\s", "", str(text))))
 
 
+def _norm_opt(s: str) -> str:
+    return re.sub(r"[\s（）()/\\\-_.]", "", str(s)).upper()
+
+
 def contains(text: str, target: str) -> bool:
-    """文字选项：OCR 结果包含目标即可（「机长」匹配「机长(PIC)」），忽略空格和全/半角括号差异"""
-    n = lambda s: re.sub(r"[\s（）()]", "", str(s)).upper()  # noqa: E731
-    return bool(n(target)) and n(target) in n(text)
+    """文字选项匹配：OCR 结果包含目标即可（「机长」匹配「机长(PIC)」），忽略空格、括号、斜杠。
+    另外容忍 OCR 把一个字母认错（如 RNP L/VNAV → RNP LNNAV），但要求长度相同、数字完全一致，
+    避免把 ILS CAT1 和 ILS CAT2、RNP L/VNAV 和 RNP LNAV 混淆"""
+    t, x = _norm_opt(target), _norm_opt(text)
+    if not t:
+        return False
+    if t in x:
+        return True
+    if len(t) >= 6 and len(t) == len(x) and re.findall(r"\d", t) == re.findall(r"\d", x):
+        return sum(a != b for a, b in zip(t, x)) <= 1
+    return False
 
 
 def same(a: str, b: str) -> bool:

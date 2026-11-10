@@ -310,8 +310,11 @@ class FakeListPicker(FakeTextPicker):
             return
         for i in range(len(self.OPTS)):
             if abs(self.item_y(i) - y) < 80:
-                # 真机现象：再点一次已选中的项会取消选中
-                self.sel = None if self.sel == i else i
+                # 真机现象：再点一次已选中的项会取消选中；已有选中项时点别的项无效，要先取消
+                if self.sel == i:
+                    self.sel = None
+                elif self.sel is None:
+                    self.sel = i
 
     def drag(self, x, y0, y1):
         max_scroll = max(0, self.TOP + len(self.OPTS) * 172 - (H - 100))
@@ -326,7 +329,8 @@ def test_select_list_picker():
         opened = []
         orig = dev.d.on_tap
         dev.d.on_tap = lambda x, y, _o=orig: (opened.append(1) if not dev.d.open else None, _o(x, y))
-        dev.select({"id": "YIBIAOTYPE_dummy", "label": "进近方式"}, want)
+        dev.d.sel = 0  # 新页面默认选中 ILS CAT1
+        dev.select({"id": "YIBIAOTYPE_dummy", "label": "进近方式"}, want, deselect_current=True, assume_current="ILS CAT1")
         if want == "ILS CAT1":
             assert not opened, "当前已是 ILS CAT1，不应再打开选择框"
         assert dev.d.value == expect and not dev.d.open, (want, dev.d.value, dev.d.open)

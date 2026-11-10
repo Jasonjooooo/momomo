@@ -435,17 +435,22 @@ class Device:
             self.d.send_keys(value, clear=True)
         time.sleep(self.step_delay)
 
-    def select(self, loc: dict, value: str, option_loc: dict | None = None):
+    def select(self, loc: dict, value: str, option_loc: dict | None = None,
+               deselect_current: bool = False, assume_current: str | None = None):
         """点开选择框，再点与 value 文字相同的选项（会自动滚动查找）"""
         if self._can_fast(loc):
             # 页面上已经显示为目标值就不用再选（有的选择框再点一次已选项会取消选中）
+            from wheel_picker import contains
+            cur_text = None
             if set(loc) & self.FAST_KEYS:
                 cur = self._find_node(loc)
                 if cur and cur[1]:
-                    from wheel_picker import contains
-                    if contains(cur[1], value):
-                        print(f"      当前已经是「{cur[1]}」，跳过")
-                        return
+                    cur_text = cur[1]
+            if cur_text is None and assume_current:  # 读不到当前值时按默认值处理（新页面的默认选项）
+                cur_text = assume_current
+            if cur_text and contains(cur_text, value):
+                print(f"      当前已经是「{cur_text}」，跳过")
+                return
             self.click(loc)
             time.sleep(0.6)
             for attempt in range(10):
@@ -454,7 +459,8 @@ class Device:
                     # 弹出的是自绘选择框（滚轮或点选列表，选项不在界面数据里；页面上显示的当前值不能当选项点）
                     print("      弹出的是自绘选择框，用 OCR 定位选项")
                     self.wheel({"confirm": "确定", "pattern": r"^(.*)$", "match": "contains",
-                                "read": "ocr", "count": 1, "offscreen": True, "tap_target": True}, value)
+                                "read": "ocr", "count": 1, "offscreen": True, "tap_target": True,
+                                "deselect": cur_text if deselect_current else None}, value)
                     return
                 r = self._find_node({"text": value}, nodes) or self._find_node({"text_contains": value}, nodes)
                 if r:
@@ -758,6 +764,18 @@ class Device:
                 init = dt.datetime.strptime(phone_now, "%Y-%m-%d %H:%M:%S").strftime(fmt)
             initial = split_value(init, spec.get("pattern"))
 
+        if spec.get("deselect"):
+            # 点选式列表：当前已选中的项要先点一下取消，才能选别的（如进近方式默认的 ILS CAT1）
+            from wheel_picker import contains
+            col = cols[targets[0]]
+            hits = [it for it in self._read_ocr(col) if contains(it.text, spec["deselect"])]
+            if hits:
+                h = min(hits, key=lambda it: abs(it.cy - col.cy))
+                self._tap(col.cx, h.cy)
+                time.sleep(0.5)
+                print(f"      先取消当前选中的「{h.text}」")
+            else:
+                print(f"      没在列表里看到当前选中的「{spec['deselect']}」，直接选目标")
         for k, (part, ci) in enumerate(zip(parts, targets)):
             col = cols[ci]
             if spec.get("center_y") is not None:
@@ -1139,7 +1157,7 @@ class DryRunDevice:
 
     def click(self, loc): print(f"    点击 {loc}")
     def fill(self, loc, value): print(f"    填写 {loc} ← {value!r}")
-    def select(self, loc, value, option_loc=None): print(f"    选择 {loc} → {value!r}")
+    def select(self, loc, value, option_loc=None, **kw): print(f"    选择 {loc} → {value!r}")
     def tap_spec(self, spec): print(f"    点 {spec.get('try')}，找不到就按位置 {spec.get('xy')}")
     def wait_for(self, spec, gone=False): print(f"    等待 {locator_of(spec)} {'消失' if gone else '出现'}")
 
@@ -1211,7 +1229,8 @@ def run_steps(dev, steps: list, row: dict[str, str], interactive: bool):
         elif action == "fill":
             dev.fill(locator_of(spec), step_value(spec, row))
         elif action == "select":
-            dev.select(locator_of(spec), step_value(spec, row), spec.get("option"))
+            dev.select(locator_of(spec), step_value(spec, row), spec.get("option"),
+                       deselect_current=bool(spec.get("deselect_current")), assume_current=spec.get("assume_current"))
         elif action == "wheel":
             dev.wheel(spec, step_value(spec, row))
         elif action == "date":
