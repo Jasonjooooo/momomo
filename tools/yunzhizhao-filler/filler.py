@@ -46,6 +46,9 @@ def _cell_to_str(v) -> str:
         return v.strftime("%Y-%m-%d")
     if isinstance(v, dt.time):
         return v.strftime("%H:%M")
+    if isinstance(v, dt.timedelta):  # Excel 时长格式 [h]:mm 读出来是 timedelta
+        m = round(v.total_seconds() / 60)
+        return f"{m // 60:02d}:{m % 60:02d}"
     if isinstance(v, float) and v.is_integer():
         return str(int(v))
     return str(v).strip()
