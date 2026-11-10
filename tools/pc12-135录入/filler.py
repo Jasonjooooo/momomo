@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-云执照 App 飞行记录自动录入工具（安卓）
+pc12-135录入 —— 云执照 App 飞行记录自动录入工具（安卓）
+（本套配置对应：PC-12 · 135飞机单发陆地-航班飞行）
 
 原理：电脑通过 USB(ADB) 连接安卓手机，用 uiautomator2 读取 App 界面上的控件，
 按 config.yaml 里写好的步骤，把 Excel/CSV 中的每一行数据自动填到 App 里。
@@ -1453,7 +1454,7 @@ def cmd_template(args):
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(description="云执照 App 飞行记录自动录入（安卓）")
+    p = argparse.ArgumentParser(description="pc12-135录入：云执照 App 飞行记录自动录入（PC-12 · 135飞机单发陆地-航班飞行）")
     p.add_argument("-c", "--config", default=str(HERE / "config.yaml"), help="配置文件，默认 config.yaml")
     p.add_argument("-s", "--serial", help="手机序列号（多台设备或无线连接时使用，如 192.168.1.5:5555）")
     sub = p.add_subparsers(dest="cmd", required=True)
