@@ -48,6 +48,8 @@ def child_env() -> dict:
 
 
 def ssl_context():
+    if os.environ.get("SSL_CERT_FILE"):
+        return ssl.create_default_context(cafile=os.environ["SSL_CERT_FILE"])
     try:
         import certifi
         return ssl.create_default_context(cafile=certifi.where())
