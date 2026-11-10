@@ -48,6 +48,10 @@ class FakeForm:
             # 真机现象：起飞站处于输入状态时，降落站输入框从界面数据里消失
             if f == "ARRVADD" and self.focus == "TAKEADD":
                 continue
+            # 真机现象：登记号处于输入状态时，起飞站整行（含标签）都从界面数据里消失
+            if f == "TAKEADD" and self.focus == "AIRREGNUM":
+                out.pop()  # 去掉刚加的标签
+                continue
             if f == "JOB_dummy":  # 隐藏的 <select>，只有 11px
                 out.append(f'<node class="android.view.View" resource-id="JOB" text="{txt}" bounds="[613,{t + 60}][624,{t + 71}]"/>')
             out.append(f'<node class="{cls}" resource-id="{f}" text="{txt}" bounds="[620,{t}][1176,{b}]" scrollable="false"/>')
@@ -98,6 +102,19 @@ class FakeForm:
             y0, y1 = int(ms[0][2]), int(ms[-1][2])
             self.scroll = max(0, min(2000, self.scroll + (y0 - y1)))
         return SimpleNamespace(output="")
+
+    def screenshot(self):
+        from PIL import Image, ImageDraw, ImageFont
+        img = Image.new("RGB", (W, H), "white")
+        dr = ImageDraw.Draw(img)
+        f = ImageFont.truetype("/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc", 46)
+        dr.rectangle((0, 0, W, HEADER), fill="#1a3a8a")
+        for fld in FIELDS:
+            y = self.y_of(fld)
+            if HEADER < y and y + 95 < H and fld in LABELS:
+                dr.text((53, y + 20), LABELS[fld], font=f, fill="#000")
+                dr.text((800, y + 20), self.values[fld] or "请输入内容", font=f, fill="#888")
+        return img
 
     # uiautomator2 输入法接口
     def set_input_ime(self, enable=True):

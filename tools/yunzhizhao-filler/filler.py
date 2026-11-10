@@ -303,6 +303,18 @@ class Device:
                     # 标签节点可能很宽（延伸到中间），取它右边缘和屏幕右边的中点作为输入区域
                     x = min((r_ + w) / 2, w - 60)
                     return (int(x - 30), t, int(x + 30), b), None
+            # 输入状态下 App 网页有时把整行（连标签）都从界面数据里藏起来：改用 OCR 在截图里找标签文字
+            if self._ocr_engine():
+                _, h = self.d.window_size()
+                cands = []
+                for t, l, tp, r_, b in self._ocr_tokens(self.d.screenshot()):
+                    if self._norm_label(t) == want and l < w * 0.5 and tp > h * 0.1:
+                        cands.append((l, tp, r_, b))
+                if cands:
+                    l, tp, r_, b = min(cands, key=lambda c: c[0])
+                    x = min((r_ + w) / 2, w - 60)
+                    print(f"      （界面数据里没有「{loc['label']}」，按截图文字定位）")
+                    return (int(x - 30), int(tp), int(x + 30), int(b)), None
         return None
 
     def _scroll_page_by(self, dy: int):
