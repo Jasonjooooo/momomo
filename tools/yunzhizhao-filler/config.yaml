@@ -78,11 +78,14 @@ record_steps:
   - select: {id: "YIBIAOTYPE", column: "进近方式"}
   - manual: "TODO 请检查/填写【飞行经历时间】{飞行经历时间}、夜间、仪表、转场时间"
   - fill:   {id: "ZHUOLUZHOUJIAN", column: "昼间着陆次数"}
+  - fill:   {id: "ZHUOLUYEJIAN",   column: "夜间着陆次数"}
+  - fill:   {id: "REMARK",         column: "备注"}
   - hide_keyboard: null
 
 # 提交（逐条确认模式下，你按回车后才会执行）
-# TODO：确认页面底部「保存」按钮的文字后再填写。目前留空 = 你自己在手机上点保存。
-submit_steps: []
+submit_steps:
+  - click: {id: "subbtn"}               # 页面底部「保  存」按钮
+  - wait: 2
 
 # 每条成功后
 after_each: []
