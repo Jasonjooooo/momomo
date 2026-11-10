@@ -1284,6 +1284,20 @@ def cmd_run(args):
     end = min(len(rows), start + args.limit) if args.limit else len(rows)
 
     dev = DryRunDevice() if args.dry_run else Device(args.serial, settings)
+    if args.only:
+        # 只执行某一段步骤，用于单独测试（如手机上已填好表单，只测保存）
+        groups = {"before": ["before_each"], "record": ["record_steps"],
+                  "submit": ["submit_steps", "after_each"], "enter": ["before_each"]}[args.only]
+        row = rows[(args.start or 1) - 1]
+        try:
+            for g in groups:
+                print(f"== 执行 {g} ==")
+                run_steps(dev, cfg.get(g, []) or [], row, interactive=not args.auto)
+            print("✓ 完成")
+        finally:
+            if hasattr(dev, "restore"):
+                dev.restore()
+        return
     if hasattr(dev, "restore"):
         import atexit
         atexit.register(dev.restore)  # 无论正常结束、出错还是 Ctrl+C，都切回原输入法
@@ -1405,6 +1419,8 @@ def main(argv=None):
     r.add_argument("--auto", action="store_true", help="全自动，不逐条确认")
     r.add_argument("--dry-run", action="store_true", help="不连手机，只预览")
     r.add_argument("--stop-on-error", action="store_true", help="全自动模式下出错即停止")
+    r.add_argument("--only", choices=["before", "record", "submit"],
+                   help="只执行一段：before=进入新增页，record=填写，submit=保存及之后（单独测试用）")
     r.set_defaults(func=cmd_run)
 
     d = sub.add_parser("dump", help="显示当前屏幕上的文字和输入框")
