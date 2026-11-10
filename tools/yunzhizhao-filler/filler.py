@@ -343,7 +343,14 @@ class Device:
         if len(sc) >= need:
             return sorted(sc, key=lambda c: c.left), "scrollable"
 
-        # 3) 按「年 月 日 / 时 分」这类表头文字划分列：每列以表头为中心，区域从表头下方开始
+        # 3) 整屏 OCR：竖向排成一列、间距均匀的数字就是滚轮
+        if self._ocr_engine():
+            from wheel_picker import columns_from_tokens
+            cols = columns_from_tokens(self._ocr_tokens(self.d.screenshot()), need, w)
+            if len(cols) >= need:
+                return cols, "ocr-scan"
+
+        # 4) 按「年 月 日 / 时 分」这类表头文字划分列：每列以表头为中心，区域从表头下方开始
         units = spec.get("labels") or ["年", "月", "日", "时", "分", "秒"]
         labs = []
         for n in nodes:
@@ -366,7 +373,7 @@ class Device:
             if bottom - top > 150:
                 return cols, "labels"
 
-        # 4) 猜测：「确定」按钮下方到屏幕底部为滚轮区域，按列数等分
+        # 5) 猜测：「确定」按钮下方到屏幕底部为滚轮区域，按列数等分
         confirm = spec.get("confirm", "确定")
         btn = self.d(text=confirm)
         if btn.exists:
@@ -403,26 +410,30 @@ class Device:
             self._ocr = RapidOCR()
         return self._ocr or None
 
-    def _read_ocr(self, col):
+    def _ocr_tokens(self, img, dx=0, dy=0):
+        """OCR 一张图，返回 [(文字, left, top, right, bottom)]（加上偏移换算为屏幕坐标）"""
         import numpy as np
-        from wheel_picker import Item
 
         eng = self._ocr_engine()
         if not eng:
             return []
-        img = self.d.screenshot()  # PIL.Image
-        crop = img.crop((col.left, col.top, col.right, col.bottom)).convert("RGB")
-        res = eng(np.array(crop))
+        res = eng(np.array(img.convert("RGB")))
         if isinstance(res, tuple):  # rapidocr_onnxruntime: (result, elapse)
-            res = res[0] or []
-            boxes = [(r[0], r[1]) for r in res]
+            boxes = [(r[0], r[1]) for r in (res[0] or [])]
         else:  # rapidocr >= 2
             boxes = list(zip(res.boxes if res.boxes is not None else [], res.txts or []))
-        items = []
+        out = []
         for box, text in boxes:
-            ys = [p[1] for p in box]
-            items.append(Item(str(text), col.top + (min(ys) + max(ys)) / 2))
-        return items
+            xs, ys = [p[0] for p in box], [p[1] for p in box]
+            out.append((str(text), min(xs) + dx, min(ys) + dy, max(xs) + dx, max(ys) + dy))
+        return out
+
+    def _read_ocr(self, col):
+        from wheel_picker import Item
+
+        img = self.d.screenshot()  # PIL.Image
+        crop = img.crop((col.left, col.top, col.right, col.bottom))
+        return [Item(t, (tp + b) / 2) for t, l, tp, r, b in self._ocr_tokens(crop, col.left, col.top)]
 
     def _drag_no_fling(self, x, y0, y1):
         """按下 → 缓慢移动 → 停顿 → 抬起：抬手速度为 0，滚轮不会惯性甩动"""
@@ -472,7 +483,7 @@ class Device:
             def reader(c, _m=mode, _how=how):
                 if _m == "blind":
                     return []
-                drawn = _how in ("labels", "guess", "area")  # 自绘滚轮：界面树里多半是被盖住的页面文字
+                drawn = _how in ("ocr-scan", "labels", "guess", "area")  # 自绘滚轮：界面树里多半是被盖住的页面文字
                 if _m == "ocr" or (_m == "auto" and drawn):
                     its = self._read_ocr(c)
                     if its or _m == "ocr":
@@ -503,9 +514,25 @@ class Device:
         """不拖动，只把识别到的列区域和读到的数字画在截图上"""
         from PIL import ImageDraw
 
-        cols, how = self._wheel_columns(spec, need)
         img = self.d.screenshot().convert("RGB")
         dr = ImageDraw.Draw(img)
+        try:
+            cols, how = self._wheel_columns(spec, need)
+        except LookupError as e:
+            print(f"✗ {e}")
+            print("整屏 OCR 读到的文字（文字, 位置）：")
+            for t, l, tp, r, b in self._ocr_tokens(img):
+                print(f"   {t!r}  [{int(l)},{int(tp)}][{int(r)},{int(b)}]")
+                dr.rectangle((l, tp, r, b), outline=(0, 200, 0), width=4)
+            print("界面里的文字：")
+            for n in self._hier_nodes():
+                t = (n.get("text") or "").strip()
+                if t and not n.get("resource-id", "").startswith("com.android.systemui"):
+                    print(f"   {t!r}  {n.get('bounds')}")
+            img.thumbnail((900, 2000))
+            img.save(out)
+            print(f"调试截图已保存：{out}")
+            return
         print(f"识别方式：{how}，共 {len(cols)} 列")
         for i, c in enumerate(cols):
             dr.rectangle((c.left, c.top, c.right, c.bottom), outline=(255, 0, 0), width=6)

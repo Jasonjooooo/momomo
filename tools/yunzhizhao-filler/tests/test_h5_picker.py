@@ -87,3 +87,51 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+class FakeH5ButtonsBottom(FakeH5):
+    """另一种布局：滚轮在屏幕中部，「时」「分」紧跟在选中数字右侧，「取消/确定」在最底部，
+    旧的按表头/按钮位置推测都会失败，只能靠整屏 OCR 找滚轮"""
+    TOP2, IH2 = 1500, 120
+
+    def dump_hierarchy(self, compressed=False):
+        return ('<hierarchy><node class="android.webkit.WebView" text="" scrollable="true" bounds="[0,130][1260,2720]">'
+                '<node class="android.view.View" text="ILS CAT1" bounds="[620,1270][1176,1364]" scrollable="false"/>'
+                '<node class="android.view.View" text="时" bounds="[400,1755][450,1805]" scrollable="false"/>'
+                '<node class="android.view.View" text="分" bounds="[1030,1755][1080,1805]" scrollable="false"/>'
+                '<node class="android.view.View" text="确定" bounds="[700,2600][1200,2690]" scrollable="false"/>'
+                '<node class="android.view.View" text="取消" bounds="[60,2600][560,2690]" scrollable="false"/>'
+                '</node></hierarchy>')
+
+    def screenshot(self):
+        img = Image.new("RGB", (W, H), "#eee")
+        d = ImageDraw.Draw(img)
+        f, fs = ImageFont.truetype(FONT, 60), ImageFont.truetype(FONT, 46)
+        d.text((620, 1300), "ILS CAT1", fill="#999", font=fs)
+        d.text((620, 1000), "00:00", fill="#999", font=fs)
+        d.rectangle((0, 1400, W, H), fill="white")
+        cy = 1780
+        for c, (l, r) in enumerate(self.cols()):
+            for k in range(-3, 4):
+                v = (self.pos[c] + k) % (24 if c == 0 else 60)
+                d.text(((l + r) / 2 - 40, cy + k * self.IH2), f"{v:02d}", font=f if k == 0 else fs,
+                       fill="#000" if k == 0 else "#aaa", anchor="mm")
+            d.text(((l + r) / 2 + 60, cy), "时" if c == 0 else "分", font=fs, fill="#000", anchor="mm")
+        d.text((250, 2640), "取消", font=fs, fill="#666", anchor="mm"); d.text((950, 2640), "确定", font=fs, fill="#1677ff", anchor="mm")
+        return img
+
+    def drag(self, x, y0, y1):
+        c = 0 if x < 630 else 1
+        self.pos[c] = (self.pos[c] + round((y0 - y1) / self.IH2)) % (24 if c == 0 else 60)
+
+
+def test_buttons_bottom():
+    dev = object.__new__(filler.Device)
+    dev.d, dev.timeout, dev.max_scrolls, dev.step_delay = FakeH5ButtonsBottom(14, 7), 1, 0, 0
+    dev.wheel({"confirm": "确定"}, "09:30")
+    assert dev.d.pos == [9, 30], dev.d.pos
+    print("✓ 按钮在底部的布局：14:07 → 09:30（整屏 OCR 定位）")
+
+
+if __name__ == "__main__":
+    test_buttons_bottom()

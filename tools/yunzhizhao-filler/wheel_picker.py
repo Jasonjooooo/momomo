@@ -295,3 +295,57 @@ def resolve_area(area, screen_w: int, screen_h: int) -> tuple[int, int, int, int
     if all(0 <= v <= 1 for v in vals):
         return int(vals[0] * screen_w), int(vals[1] * screen_h), int(vals[2] * screen_w), int(vals[3] * screen_h)
     return tuple(int(v) for v in vals)  # type: ignore[return-value]
+
+
+def columns_from_tokens(tokens, need: int, screen_w: int) -> list[Column]:
+    """
+    从整屏 OCR 结果中找滚轮：竖向排成一列、间距均匀的数字（至少 3 个）就是一列滚轮。
+    tokens: [(text, left, top, right, bottom)]
+    """
+    pts = []
+    for text, l, t, r, b in tokens:
+        if looks_like_item(text):
+            pts.append({"text": text, "l": l, "r": r, "cx": (l + r) / 2, "cy": (t + b) / 2})
+    pts.sort(key=lambda p: p["cx"])
+    clusters: list[list[dict]] = []
+    for p in pts:
+        if clusters and abs(p["cx"] - statistics.mean(q["cx"] for q in clusters[-1])) < screen_w * 0.06:
+            clusters[-1].append(p)
+        else:
+            clusters.append([p])
+
+    cands = []
+    for c in clusters:
+        c.sort(key=lambda p: p["cy"])
+        # 只保留间距均匀的最长一段
+        best = []
+        for i in range(len(c)):
+            for j in range(i + 2, len(c)):
+                seg = c[i:j + 1]
+                gaps = [b["cy"] - a["cy"] for a, b in zip(seg, seg[1:])]
+                g = statistics.median(gaps)
+                if g > 20 and all(0.6 * g <= x <= 1.5 * g for x in gaps) and len(seg) > len(best):
+                    best = seg
+        if len(best) >= 3:
+            gaps = [b["cy"] - a["cy"] for a, b in zip(best, best[1:])]
+            cands.append((best, statistics.median(gaps)))
+    if not cands:
+        return []
+    # 取数量最多的一组，再找与它竖直范围重叠的其它列
+    cands.sort(key=lambda x: -len(x[0]))
+    main_top = min(p["cy"] for p in cands[0][0])
+    main_bot = max(p["cy"] for p in cands[0][0])
+    picked = [c for c in cands if min(p["cy"] for p in c[0]) < main_bot and max(p["cy"] for p in c[0]) > main_top]
+    picked = sorted(picked[:max(need, 1) + 3], key=lambda x: statistics.mean(p["cx"] for p in x[0]))
+
+    cxs = [statistics.mean(p["cx"] for p in c) for c, _ in picked]
+    cols = []
+    for i, (c, g) in enumerate(picked):
+        left = (cxs[i - 1] + cxs[i]) / 2 if i else max(0, min(p["l"] for p in c) - g)
+        right = (cxs[i] + cxs[i + 1]) / 2 if i + 1 < len(cxs) else min(screen_w, max(p["r"] for p in c) + g)
+        top = min(p["cy"] for p in c) - g * 0.7
+        bot = max(p["cy"] for p in c) + g * 0.7
+        mid = (top + bot) / 2
+        center = min((p["cy"] for p in c), key=lambda y: abs(y - mid))
+        cols.append(Column(int(left), int(top), int(right), int(bot), center_y=center))
+    return cols
