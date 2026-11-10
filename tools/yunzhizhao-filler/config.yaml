@@ -69,7 +69,7 @@ settings:
 before_each:
   # 在列表页点「飞行经历」那一行右侧的「+」进入新增页面（默认就是「135飞机单发陆地-航班飞行」）；已在新增页面时跳过
   - tap:      {try: [{text: "+"}, {text: "＋"}, {desc: "添加"}, {desc: "新增"}], xy: [0.895, 0.14], unless_exists: {id: "AIRNUM"}}
-  - wait_for: {id: "AIRNUM", timeout: 15, message: "点「+」后没有进入新增页面"}
+  - wait_for: {id: "AIRNUM", label: "航班号", timeout: 15, message: "点「+」后没有进入新增页面"}
   - wait: 0.5
 
 # 填写表单（id 来自 dump 输出）
