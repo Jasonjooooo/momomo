@@ -171,6 +171,8 @@ class Device:
         self.timeout = float(settings.get("find_timeout", 5))
         self.max_scrolls = int(settings.get("max_scrolls", 6))
         self.step_delay = float(settings.get("step_delay", 0.4))
+        self.fast = bool(settings.get("fast", True))  # 用 adb 点击/输入，绕开 uiautomator 的等待
+        self._orig_ime = None
         try:
             cfg = self.d.jsonrpc.getConfigurator()
             self.d.jsonrpc.setConfigurator(dict(cfg, waitForIdleTimeout=100))
@@ -270,7 +272,65 @@ class Device:
         return True
 
     # ---------- 动作 ----------
+    # ---------- 快速模式（adb 点击 / 输入法广播输入）----------
+    FAST_KEYS = {"id", "text", "text_contains", "hint", "desc"}
+
+    def _can_fast(self, loc: dict) -> bool:
+        return self.fast and bool(set(loc) & self.FAST_KEYS) and not (set(loc) & {"label", "input_index", "class", "nth"})
+
+    def _scroll_page_by(self, dy: int):
+        """页面内容上移 dy 像素（dy<0 下移），无惯性"""
+        w, h = self.d.window_size()
+        y0 = int(h * 0.75) if dy > 0 else int(h * 0.3)
+        y1 = max(int(h * 0.12), min(int(h * 0.95), y0 - dy))
+        self._drag_no_fling(int(w * 0.08), y0, y1)
+        time.sleep(0.3)
+
+    def _locate_fast(self, loc: dict):
+        """找到控件并保证它完整显示在屏幕中部附近；找不到时上下滚动页面查找。返回 (bounds, 文字)"""
+        w, h = self.d.window_size()
+        moves = [0] + [1] * self.max_scrolls + [-1] * (self.max_scrolls * 2)
+        for mv in moves:
+            if mv:
+                self._scroll_page_by(mv * int(h * 0.4))
+            r = self._find_node(loc)
+            if not r:
+                continue
+            b = r[0]
+            if b[1] >= h * 0.13 and b[3] <= h * 0.92 and b[3] - b[1] >= 40:
+                return r
+            # 被标题栏/屏幕边缘遮住一部分：滚到中间再找
+            self._scroll_page_by(int((b[1] + b[3]) / 2 - h * 0.5))
+            r = self._find_node(loc)
+            if r:
+                return r
+        return None
+
+    def _ensure_ime(self):
+        """切换到 uiautomator2 的输入法（可输入中文、不弹键盘）；结束时 restore() 切回原输入法"""
+        if self._orig_ime is None:
+            self._orig_ime = self._adb("settings get secure default_input_method").strip()
+            self.d.set_input_ime(True)
+
+    def restore(self):
+        if self._orig_ime and "AdbKeyboard" not in self._orig_ime:
+            self._adb(f"ime set {self._orig_ime}")
+            print(f"已切回原输入法：{self._orig_ime}")
+        self._orig_ime = None
+
+    def _type(self, value: str):
+        self._ensure_ime()
+        self.d.send_keys(value)
+
     def click(self, loc: dict):
+        if self._can_fast(loc):
+            r = self._locate_fast(loc)
+            if r is None:
+                raise LookupError(f"找不到要点击的控件：{loc}")
+            b = r[0]
+            self._tap((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)
+            time.sleep(self.step_delay)
+            return
         el = self.find(loc)
         if el is None:
             raise LookupError(f"找不到要点击的控件：{loc}")
@@ -278,6 +338,20 @@ class Device:
         time.sleep(self.step_delay)
 
     def fill(self, loc: dict, value: str):
+        if self._can_fast(loc):
+            r = self._locate_fast(loc)
+            if r is None:
+                raise LookupError(f"找不到输入框：{loc}")
+            (l, t, rr, b), cur = r
+            self._ensure_ime()
+            self._tap((l + rr) / 2, (t + b) / 2)
+            time.sleep(0.35)
+            # 清空：光标移到末尾后逐个删除
+            n = len(cur) + 3
+            self._adb("input keyevent KEYCODE_MOVE_END " + " ".join(["KEYCODE_DEL"] * n))
+            self._type(value)
+            time.sleep(self.step_delay)
+            return
         el = self.find(loc, want_input=True)
         if el is None:
             raise LookupError(f"找不到输入框：{loc}")
@@ -304,6 +378,29 @@ class Device:
 
     def select(self, loc: dict, value: str, option_loc: dict | None = None):
         """点开选择框，再点与 value 文字相同的选项（会自动滚动查找）"""
+        if self._can_fast(loc):
+            self.click(loc)
+            time.sleep(0.6)
+            for attempt in range(10):
+                nodes = self._hier_nodes()
+                r = self._find_node({"text": value}, nodes) or self._find_node({"text_contains": value}, nodes)
+                if r:
+                    b = r[0]
+                    self._tap((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)
+                    time.sleep(self.step_delay)
+                    return
+                # 在弹出的列表里滚动查找（先往下 5 次，再往上）
+                lists = [parse_bounds(n.get("bounds")) for n in nodes if n.get("scrollable") == "true"]
+                lists = [x for x in lists if (x[2] - x[0]) * (x[3] - x[1]) < 0.7 * self.d.window_size()[0] * self.d.window_size()[1]]
+                if not lists:
+                    break
+                lb = min(lists, key=lambda x: (x[2] - x[0]) * (x[3] - x[1]))
+                cx, span = (lb[0] + lb[2]) // 2, int((lb[3] - lb[1]) * 0.6)
+                d = 1 if attempt < 5 else -1
+                y0 = lb[3] - 20 if d > 0 else lb[1] + 20
+                self._drag_no_fling(cx, y0, y0 - d * span)
+                time.sleep(0.3)
+            raise LookupError(f"选项里没有「{value}」")
         self.click(loc)
         time.sleep(0.5)
         opt = dict(option_loc or {})
@@ -486,9 +583,14 @@ class Device:
             t.up(x, y1)
         self._need_settle = True
 
-    def _find_node_bounds(self, loc: dict):
+    def _find_node_bounds(self, loc: dict, nodes=None):
         """在界面 XML 里按 id / text 找控件位置（只 dump 一次，比 UiObject 查找快）"""
-        for n in self._hier_nodes():
+        r = self._find_node(loc, nodes)
+        return r[0] if r else None
+
+    def _find_node(self, loc: dict, nodes=None):
+        """返回 (bounds, 当前文字)"""
+        for n in (nodes if nodes is not None else self._hier_nodes()):
             rid = n.get("resource-id") or ""
             t = (n.get("text") or "").replace("\xa0", " ").strip()
             ok = False
@@ -496,12 +598,16 @@ class Device:
                 ok = rid == loc["id"] or rid.endswith(":id/" + loc["id"])
             elif "text" in loc:
                 ok = t == loc["text"]
+            elif "hint" in loc:
+                ok = t == loc["hint"]
             elif "text_contains" in loc:
                 ok = loc["text_contains"] in t
+            elif "desc" in loc:
+                ok = (n.get("content-desc") or "") == loc["desc"]
             if ok:
                 b = parse_bounds(n.get("bounds"))
                 if b[2] > b[0] and b[3] > b[1]:
-                    return b
+                    return b, t
         return None
 
     def _fast_click(self, loc: dict) -> bool:
@@ -533,9 +639,7 @@ class Device:
 
         if spec.get("open"):  # 先点开滚轮
             t0 = time.time()
-            loc = locator_of(spec["open"])
-            if not self._fast_click(loc):
-                self.click(loc)
+            self.click(locator_of(spec["open"]))
             time.sleep(0.8)
             print(f"      打开滚轮用时 {time.time() - t0:.1f}s")
         self.wheel_settle = float(spec.get("settle", 0.3))
@@ -677,10 +781,21 @@ class Device:
         print(f"调试截图已保存：{out}")
 
     def back(self):
-        self.d.press("back")
+        if self.fast:
+            self._adb("input keyevent KEYCODE_BACK")
+        else:
+            self.d.press("back")
         time.sleep(self.step_delay)
 
     def hide_keyboard(self):
+        if self.fast:
+            if self._orig_ime is not None:  # 使用 uiautomator2 输入法时，用广播收起
+                try:
+                    self.d._broadcast("ADB_KEYBOARD_HIDE")
+                except Exception:
+                    pass
+            time.sleep(0.2)
+            return
         try:
             self.d.hide_keyboard()
         except Exception:
@@ -691,6 +806,8 @@ class Device:
         self.d.screenshot(str(path))
 
     def exists(self, loc: dict) -> bool:
+        if self._can_fast(loc):
+            return self._find_node_bounds(loc) is not None
         return self._find_once(loc, want_input=False) is not None
 
     # ---------- 屏幕信息 ----------
@@ -857,6 +974,9 @@ def cmd_run(args):
     end = min(len(rows), start + args.limit) if args.limit else len(rows)
 
     dev = DryRunDevice() if args.dry_run else Device(args.serial, settings)
+    if hasattr(dev, "restore"):
+        import atexit
+        atexit.register(dev.restore)  # 无论正常结束、出错还是 Ctrl+C，都切回原输入法
     interactive = not args.auto and not args.dry_run
     shots = HERE / "screenshots"
 
@@ -866,6 +986,7 @@ def cmd_run(args):
     while i < end:
         row = rows[i]
         summary = "  ".join(f"{k}={v}" for k, v in list(row.items())[:4])
+        t_row = time.time()
         print(f"[{i + 1}/{len(rows)}] {summary}")
         try:
             run_steps(dev, cfg.get("before_each", []), row, interactive)
@@ -884,7 +1005,7 @@ def cmd_run(args):
             run_steps(dev, cfg.get("submit_steps", []), row, interactive)
             run_steps(dev, cfg.get("after_each", []), row, interactive)
             done += 1
-            print("    ✓ 完成")
+            print(f"    ✓ 完成（本条用时 {time.time() - t_row:.0f}s）")
             if not args.dry_run:
                 save_progress(args.data, i + 1)
             i += 1

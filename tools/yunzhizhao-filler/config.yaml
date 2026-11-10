@@ -61,6 +61,7 @@ settings:
   find_timeout: 5     # 找控件最多等几秒
   max_scrolls: 6      # 找不到时最多上下滚动几次
   step_delay: 0.5     # 每步之后停顿几秒（手机慢就调大）
+  fast: true          # 用 adb 点击 + 输入法广播输入（快）；有问题时改 false 退回 uiautomator（慢）
 
 # 每条记录开始前：进入新增页面
 # TODO：确认从列表页进入「135飞机单发陆地-航班飞行」新增页面的按钮后再填写。
@@ -77,15 +78,15 @@ record_steps:
   - fill:   {id: "ARRVADD",   column: "降落站"}
   - hide_keyboard: null
   # 时/分滚轮（H5 自绘，靠 OCR 读数，需安装 rapidocr_onnxruntime）
-  - wheel:  {open: {id: "TAKETIME-time"}, column: "出发时刻", confirm: "确定"}
-  - wheel:  {open: {id: "ARRVTIME-time"}, column: "到达时刻", confirm: "确定"}
+  - wheel:  {open: {id: "TAKETIME-time"}, column: "出发时刻", confirm: "确定", offscreen: true}
+  - wheel:  {open: {id: "ARRVTIME-time"}, column: "到达时刻", confirm: "确定", offscreen: true}
   - select: {id: "JOB",        column: "职位"}       # 选项文字只要包含表格里的值即可，如「机长」
   - select: {id: "YIBIAOTYPE", column: "进近方式"}
   # 以下时间字段若与出发时刻是同一种滚轮即可自动；表格里留空则跳过
-  - wheel:  {open: {id: "JINGLITIME"},     column: "飞行经历时间", confirm: "确定"}
-  - wheel:  {open: {id: "YEJIANTIME"},     column: "夜间飞行经历时间", confirm: "确定"}
-  - wheel:  {open: {id: "YIBIAOTIME"},     column: "真实仪表时间", confirm: "确定"}
-  - wheel:  {open: {id: "ZHUANCHANGTIME"}, column: "转场时间", confirm: "确定"}
+  - wheel:  {open: {id: "JINGLITIME"},     column: "飞行经历时间", confirm: "确定", offscreen: true}
+  - wheel:  {open: {id: "YEJIANTIME"},     column: "夜间飞行经历时间", confirm: "确定", offscreen: true}
+  - wheel:  {open: {id: "YIBIAOTIME"},     column: "真实仪表时间", confirm: "确定", offscreen: true}
+  - wheel:  {open: {id: "ZHUANCHANGTIME"}, column: "转场时间", confirm: "确定", offscreen: true}
   - fill:   {id: "ZHUOLUZHOUJIAN", column: "昼间着陆次数"}
   - fill:   {id: "ZHUOLUYEJIAN",   column: "夜间着陆次数"}
   - fill:   {id: "REMARK",         column: "备注"}
