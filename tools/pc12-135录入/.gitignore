@@ -3,3 +3,5 @@ screenshots/
 __pycache__/
 tests/ocr_wheel_result.png
 wheel_debug.png
+.gui_state.json
+config.yaml.bak

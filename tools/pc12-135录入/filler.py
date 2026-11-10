@@ -1453,7 +1453,22 @@ def cmd_template(args):
     print(f"已生成数据模板：{out}（可用 Excel 打开编辑，另存为 .xlsx 或 .csv 均可）")
 
 
+def _install_signal_handlers():
+    """被图形界面的「停止」按钮中断（SIGINT/SIGTERM）时也正常退出，让 atexit 切回原输入法"""
+    import signal
+
+    def handler(signum, frame):
+        raise KeyboardInterrupt
+    for sig in (signal.SIGINT, getattr(signal, "SIGTERM", None)):
+        if sig is not None:
+            try:
+                signal.signal(sig, handler)
+            except (ValueError, OSError):
+                pass
+
+
 def main(argv=None):
+    _install_signal_handlers()
     p = argparse.ArgumentParser(description="pc12-135录入：云执照 App 飞行记录自动录入（PC-12 · 135飞机单发陆地-航班飞行）")
     p.add_argument("-c", "--config", default=str(HERE / "config.yaml"), help="配置文件，默认 config.yaml")
     p.add_argument("-s", "--serial", help="手机序列号（多台设备或无线连接时使用，如 192.168.1.5:5555）")
@@ -1493,7 +1508,11 @@ def main(argv=None):
     t.set_defaults(func=cmd_template)
 
     args = p.parse_args(argv)
-    args.func(args)
+    try:
+        args.func(args)
+    except KeyboardInterrupt:
+        print("\n已停止。")
+        sys.exit(130)
 
 
 if __name__ == "__main__":
