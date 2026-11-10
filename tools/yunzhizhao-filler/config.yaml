@@ -36,6 +36,7 @@
 #   column: "列名"                       直接取该列
 #   value: "{起飞时间}-{降落时间}"         组合多列
 #   map: {"训练": "训练飞行"}             把数据里的值换成 App 里的选项文字
+#   default: "机长"                      表格里该格为空、或没有这一列时使用的默认值
 #   only_if: "备注"                      仅当该列不为空时才执行此步
 #   （fill/select/wheel 遇到空值会自动跳过）
 #
@@ -82,8 +83,9 @@ record_steps:
   - wheel:  {open: {id: "TAKETIME-time", label: "出发时刻"}, column: "出发时刻", confirm: "确定", offscreen: true}
   - wheel:  {open: {id: "ARRVTIME-time", label: "到达时刻"}, column: "到达时刻", confirm: "确定", offscreen: true}
   # 下拉框：点 _dummy（显示当前值的那个框）；选项文字只要包含表格里的值即可，如「机长」
-  - select: {id: "JOB_dummy",        label: "职位",     column: "职位"}
-  - select: {id: "YIBIAOTYPE_dummy", label: "进近方式", column: "进近方式"}
+  # default：表格里没填时选它；以后在 Excel 的「职位」「进近方式」列里填写即可逐条指定
+  - select: {id: "JOB_dummy",        label: "职位",     column: "职位",     default: "机长"}
+  - select: {id: "YIBIAOTYPE_dummy", label: "进近方式", column: "进近方式", default: "ILS CAT1"}
   # 以下时间字段若与出发时刻是同一种滚轮即可自动；表格里留空则跳过
   - wheel:  {open: {id: "JINGLITIME",     label: "飞行经历时间"},     column: "飞行经历时间", confirm: "确定", offscreen: true}
   - wheel:  {open: {id: "YEJIANTIME",     label: "夜间飞行经历时间"}, column: "夜间飞行经历时间", confirm: "确定", offscreen: true}

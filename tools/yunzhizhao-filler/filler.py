@@ -108,11 +108,13 @@ def render_value(template, row: dict[str, str]) -> str:
 def step_value(step: dict, row: dict[str, str]) -> str:
     if "column" in step:
         col = step["column"]
-        if col not in row:
+        if col not in row and "default" not in step:
             raise KeyError(f"数据中没有列「{col}」，现有列：{', '.join(row)}")
-        value = row[col]
+        value = row.get(col, "")
     else:
         value = render_value(step.get("value", ""), row)
+    if value == "" and "default" in step:  # 表格里这一格为空（或没有这一列）时用默认值
+        value = render_value(step["default"], row)
     mapping = step.get("map")  # 值转换，例如 {"是": "训练飞行"}
     if mapping and value in mapping:
         value = str(mapping[value])
@@ -1008,6 +1010,8 @@ def cmd_run(args):
         if isinstance(step, dict):
             spec = next(iter(step.values()))
             if isinstance(spec, dict):
+                if "default" in spec:
+                    continue
                 need = [spec["column"]] if "column" in spec else re.findall(r"\{([^{}]+)\}", str(spec.get("value", "")))
                 miss = [c for c in need if c not in cols]
                 if miss:
