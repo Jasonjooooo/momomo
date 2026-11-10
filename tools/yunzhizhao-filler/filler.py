@@ -406,6 +406,14 @@ class Device:
     def select(self, loc: dict, value: str, option_loc: dict | None = None):
         """点开选择框，再点与 value 文字相同的选项（会自动滚动查找）"""
         if self._can_fast(loc):
+            # 页面上已经显示为目标值就不用再选（有的选择框再点一次已选项会取消选中）
+            if set(loc) & self.FAST_KEYS:
+                cur = self._find_node(loc)
+                if cur and cur[1]:
+                    from wheel_picker import contains
+                    if contains(cur[1], value):
+                        print(f"      当前已经是「{cur[1]}」，跳过")
+                        return
             self.click(loc)
             time.sleep(0.6)
             for attempt in range(10):

@@ -306,11 +306,12 @@ class FakeListPicker(FakeTextPicker):
                 self.open = True
             return
         if 1080 <= x <= 1220 and 1690 <= y <= 1770:
-            self.value, self.open = self.OPTS[self.sel], False
+            self.value, self.open = (self.OPTS[self.sel] if self.sel is not None else "请选择"), False
             return
         for i in range(len(self.OPTS)):
             if abs(self.item_y(i) - y) < 80:
-                self.sel = i
+                # 真机现象：再点一次已选中的项会取消选中
+                self.sel = None if self.sel == i else i
 
     def drag(self, x, y0, y1):
         max_scroll = max(0, self.TOP + len(self.OPTS) * 172 - (H - 100))
@@ -322,7 +323,12 @@ def test_select_list_picker():
         dev = object.__new__(filler.Device)
         dev.d, dev.timeout, dev.max_scrolls, dev.step_delay, dev.fast = FakeListPicker(), 1, 0, 0, True
         dev.d.value = "ILS CAT1"
+        opened = []
+        orig = dev.d.on_tap
+        dev.d.on_tap = lambda x, y, _o=orig: (opened.append(1) if not dev.d.open else None, _o(x, y))
         dev.select({"id": "YIBIAOTYPE_dummy", "label": "进近方式"}, want)
+        if want == "ILS CAT1":
+            assert not opened, "当前已是 ILS CAT1，不应再打开选择框"
         assert dev.d.value == expect and not dev.d.open, (want, dev.d.value, dev.d.open)
     print("✓ 点选式列表：VOR / ILS CAT1 / 其它(other) / RNP L/VNAV 都能选中并确定")
 

@@ -86,8 +86,8 @@ record_steps:
   # default：表格里没填时选它；以后在 Excel 的「职位」「进近方式」列里填写即可逐条指定
   - select: {id: "JOB_dummy",        label: "职位",     column: "职位",     default: "机长"}
   - select: {id: "YIBIAOTYPE_dummy", label: "进近方式", column: "进近方式", default: "ILS CAT1"}
+  # 飞行经历时间由 App 根据出发/到达时刻自动计算，不用填
   # 以下时间字段若与出发时刻是同一种滚轮即可自动；表格里留空则跳过
-  - wheel:  {open: {id: "JINGLITIME",     label: "飞行经历时间"},     column: "飞行经历时间", confirm: "确定", offscreen: true}
   - wheel:  {open: {id: "YEJIANTIME",     label: "夜间飞行经历时间"}, column: "夜间飞行经历时间", confirm: "确定", offscreen: true}
   - wheel:  {open: {id: "YIBIAOTIME",     label: "真实仪表时间"},     column: "真实仪表时间", confirm: "确定", offscreen: true}
   - wheel:  {open: {id: "ZHUANCHANGTIME", label: "转场时间"},         column: "转场时间", confirm: "确定", offscreen: true}
