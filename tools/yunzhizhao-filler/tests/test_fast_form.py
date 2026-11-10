@@ -10,8 +10,10 @@ import filler  # noqa: E402
 
 W, H, HEADER = 1260, 2720, 338
 ROW = 145
-FIELDS = ["AIRNUM", "AIRMODEL", "AIRREGNUM", "TAKEADD", "ARRVADD", "JOB", "YIBIAOTYPE",
+FIELDS = ["AIRNUM", "AIRMODEL", "AIRREGNUM", "TAKEADD", "ARRVADD", "JOB_dummy", "YIBIAOTYPE",
           "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "ZHUOLUZHOUJIAN", "ZHUOLUYEJIAN", "REMARK", "subbtn"]
+LABELS = {"AIRNUM": "航班号", "AIRMODEL": "航空器型号*", "AIRREGNUM": "航空器登记号*", "TAKEADD": "起飞站",
+          "ARRVADD": "降落站", "JOB_dummy": "职位", "ZHUOLUYEJIAN": "夜间", "REMARK": "备注"}
 JOBS = ["请选择(Please Select)", "机长(PIC)", "副驾驶(SIC)", "学员(Student)", "教员(Instructor)"]
 
 
@@ -19,7 +21,7 @@ class FakeForm:
     def __init__(self):
         self.values = {f: "" for f in FIELDS}
         self.values["AIRMODEL"] = "PC-12"
-        self.values["JOB"] = JOBS[0]
+        self.values["JOB_dummy"] = JOBS[0]
         self.scroll = 0
         self.focus = None
         self.dialog = False
@@ -41,6 +43,13 @@ class FakeForm:
                 continue  # WebView 只暴露可见的控件
             cls = "android.widget.Button" if f == "subbtn" else "android.widget.EditText"
             txt = "保\xa0\xa0存" if f == "subbtn" else self.values[f]
+            if f in LABELS:
+                out.append(f'<node class="android.view.View" text="{LABELS[f]}" bounds="[53,{t}][617,{b}]"/>')
+            # 真机现象：起飞站处于输入状态时，降落站输入框从界面数据里消失
+            if f == "ARRVADD" and self.focus == "TAKEADD":
+                continue
+            if f == "JOB_dummy":  # 隐藏的 <select>，只有 11px
+                out.append(f'<node class="android.view.View" resource-id="JOB" text="{txt}" bounds="[613,{t + 60}][624,{t + 71}]"/>')
             out.append(f'<node class="{cls}" resource-id="{f}" text="{txt}" bounds="[620,{t}][1176,{b}]" scrollable="false"/>')
         if self.dialog:
             out.append('<node class="android.widget.ListView" scrollable="true" bounds="[100,900][1160,1700]">')
@@ -70,12 +79,12 @@ class FakeForm:
             if self.dialog:
                 i = (y - 900) // 150
                 if 0 <= i < len(JOBS):
-                    self.values["JOB"] = JOBS[i]
+                    self.values["JOB_dummy"] = JOBS[i]
                 self.dialog = False
                 return SimpleNamespace(output="")
             f = self.at(x, y)
             assert f is not None, f"点到了空白处 ({x},{y})，被遮挡或位置不对"
-            if f == "JOB":
+            if f == "JOB_dummy":
                 self.dialog = True
             elif f == "subbtn":
                 self.saved = True
@@ -114,21 +123,21 @@ def test_fill_and_select():
     row = {"航班号": "TEST01", "航空器型号": "C208", "登记号": "B-1234", "起飞站": "ZBAA",
            "降落站": "ZSSS", "职位": "机长", "夜间": "", "备注": "测试备注"}
     steps = [
-        {"fill": {"id": "AIRNUM", "column": "航班号"}},
-        {"fill": {"id": "AIRMODEL", "column": "航空器型号"}},
-        {"fill": {"id": "AIRREGNUM", "column": "登记号"}},
-        {"fill": {"id": "TAKEADD", "column": "起飞站"}},
-        {"fill": {"id": "ARRVADD", "column": "降落站"}},
-        {"select": {"id": "JOB", "column": "职位"}},
-        {"fill": {"id": "ZHUOLUYEJIAN", "column": "夜间"}},
-        {"fill": {"id": "REMARK", "column": "备注"}},
+        {"fill": {"id": "AIRNUM", "label": "航班号", "column": "航班号"}},
+        {"fill": {"id": "AIRMODEL", "label": "航空器型号", "column": "航空器型号"}},
+        {"fill": {"id": "AIRREGNUM", "label": "航空器登记号", "column": "登记号"}},
+        {"fill": {"id": "TAKEADD", "label": "起飞站", "column": "起飞站"}},
+        {"fill": {"id": "ARRVADD", "label": "降落站", "column": "降落站"}},
+        {"select": {"id": "JOB_dummy", "label": "职位", "column": "职位"}},
+        {"fill": {"id": "ZHUOLUYEJIAN", "label": "夜间", "column": "夜间"}},
+        {"fill": {"id": "REMARK", "label": "备注", "column": "备注"}},
         {"hide_keyboard": None},
         {"click": {"id": "subbtn"}},
     ]
     filler.run_steps(dev, steps, row, interactive=False)
     v = dev.d.values
     assert (v["AIRNUM"], v["AIRMODEL"], v["AIRREGNUM"], v["TAKEADD"], v["ARRVADD"]) == ("TEST01", "C208", "B-1234", "ZBAA", "ZSSS"), v
-    assert v["JOB"] == "机长(PIC)", v["JOB"]
+    assert v["JOB_dummy"] == "机长(PIC)", v["JOB_dummy"]
     assert v["REMARK"] == "测试备注" and v["ZHUOLUYEJIAN"] == ""
     assert dev.d.saved, "没有点到保存（在页面最底部，需要滚动）"
     dev.restore()

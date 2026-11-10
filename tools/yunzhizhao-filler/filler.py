@@ -276,7 +276,32 @@ class Device:
     FAST_KEYS = {"id", "text", "text_contains", "hint", "desc"}
 
     def _can_fast(self, loc: dict) -> bool:
-        return self.fast and bool(set(loc) & self.FAST_KEYS) and not (set(loc) & {"label", "input_index", "class", "nth"})
+        return self.fast and bool(set(loc) & (self.FAST_KEYS | {"label"})) and not (set(loc) & {"input_index", "class", "nth"})
+
+    @staticmethod
+    def _norm_label(t: str) -> str:
+        return re.sub(r"[\s\xa0*＊:：]", "", t or "")
+
+    def _find_fast(self, loc: dict):
+        """先按 id/text 找；找不到（例如输入中时 App 网页会隐藏相邻输入框的 id）再按标签文字找，
+        返回标签所在行右侧输入区域的位置。返回 (bounds, 当前文字或 None)"""
+        nodes = self._hier_nodes()
+        if set(loc) & self.FAST_KEYS:
+            r = self._find_node(loc, nodes)
+            if r:
+                return r
+        if "label" in loc:
+            want = self._norm_label(loc["label"])
+            w, _ = self.d.window_size()
+            for n in nodes:
+                if self._norm_label(n.get("text")) == want:
+                    l, t, r_, b = parse_bounds(n.get("bounds"))
+                    if b - t < 20:
+                        continue
+                    # 标签节点可能很宽（延伸到中间），取它右边缘和屏幕右边的中点作为输入区域
+                    x = min((r_ + w) / 2, w - 60)
+                    return (int(x - 30), t, int(x + 30), b), None
+        return None
 
     def _scroll_page_by(self, dy: int):
         """页面内容上移 dy 像素（dy<0 下移），无惯性"""
@@ -293,7 +318,7 @@ class Device:
         for mv in moves:
             if mv:
                 self._scroll_page_by(mv * int(h * 0.4))
-            r = self._find_node(loc)
+            r = self._find_fast(loc)
             if not r:
                 continue
             b = r[0]
@@ -301,7 +326,7 @@ class Device:
                 return r
             # 被标题栏/屏幕边缘遮住一部分：滚到中间再找
             self._scroll_page_by(int((b[1] + b[3]) / 2 - h * 0.5))
-            r = self._find_node(loc)
+            r = self._find_fast(loc)
             if r:
                 return r
         return None
@@ -347,7 +372,7 @@ class Device:
             self._tap((l + rr) / 2, (t + b) / 2)
             time.sleep(0.35)
             # 清空：光标移到末尾后逐个删除
-            n = len(cur) + 3
+            n = len(cur) + 3 if cur is not None else 40  # 按标签定位时不知道原有内容，多删几个
             self._adb("input keyevent KEYCODE_MOVE_END " + " ".join(["KEYCODE_DEL"] * n))
             self._type(value)
             time.sleep(self.step_delay)
@@ -606,7 +631,7 @@ class Device:
                 ok = (n.get("content-desc") or "") == loc["desc"]
             if ok:
                 b = parse_bounds(n.get("bounds"))
-                if b[2] > b[0] and b[3] > b[1]:
+                if b[2] - b[0] >= 20 and b[3] - b[1] >= 20:  # 过小的是隐藏控件（如 <select>），点不准
                     return b, t
         return None
 

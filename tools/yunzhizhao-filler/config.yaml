@@ -70,26 +70,28 @@ before_each: []
 
 # 填写表单（id 来自 dump 输出）
 record_steps:
+  # id 是控件编号；label 是该行左侧的文字，id 找不到时（App 网页在输入状态下会隐藏相邻输入框的 id）按 label 定位
   - manual: "TODO 请手动选择【日期】{日期}"
-  - fill:   {id: "AIRNUM",    column: "航班号"}
-  - fill:   {id: "AIRMODEL",  column: "航空器型号"}
-  - fill:   {id: "AIRREGNUM", column: "航空器登记号"}
-  - fill:   {id: "TAKEADD",   column: "起飞站"}
-  - fill:   {id: "ARRVADD",   column: "降落站"}
+  - fill:   {id: "AIRNUM",    label: "航班号",       column: "航班号"}
+  - fill:   {id: "AIRMODEL",  label: "航空器型号",   column: "航空器型号"}
+  - fill:   {id: "AIRREGNUM", label: "航空器登记号", column: "航空器登记号"}
+  - fill:   {id: "TAKEADD",   label: "起飞站",       column: "起飞站"}
+  - fill:   {id: "ARRVADD",   label: "降落站",       column: "降落站"}
   - hide_keyboard: null
   # 时/分滚轮（H5 自绘，靠 OCR 读数，需安装 rapidocr_onnxruntime）
-  - wheel:  {open: {id: "TAKETIME-time"}, column: "出发时刻", confirm: "确定", offscreen: true}
-  - wheel:  {open: {id: "ARRVTIME-time"}, column: "到达时刻", confirm: "确定", offscreen: true}
-  - select: {id: "JOB",        column: "职位"}       # 选项文字只要包含表格里的值即可，如「机长」
-  - select: {id: "YIBIAOTYPE", column: "进近方式"}
+  - wheel:  {open: {id: "TAKETIME-time", label: "出发时刻"}, column: "出发时刻", confirm: "确定", offscreen: true}
+  - wheel:  {open: {id: "ARRVTIME-time", label: "到达时刻"}, column: "到达时刻", confirm: "确定", offscreen: true}
+  # 下拉框：点 _dummy（显示当前值的那个框）；选项文字只要包含表格里的值即可，如「机长」
+  - select: {id: "JOB_dummy",        label: "职位",     column: "职位"}
+  - select: {id: "YIBIAOTYPE_dummy", label: "进近方式", column: "进近方式"}
   # 以下时间字段若与出发时刻是同一种滚轮即可自动；表格里留空则跳过
-  - wheel:  {open: {id: "JINGLITIME"},     column: "飞行经历时间", confirm: "确定", offscreen: true}
-  - wheel:  {open: {id: "YEJIANTIME"},     column: "夜间飞行经历时间", confirm: "确定", offscreen: true}
-  - wheel:  {open: {id: "YIBIAOTIME"},     column: "真实仪表时间", confirm: "确定", offscreen: true}
-  - wheel:  {open: {id: "ZHUANCHANGTIME"}, column: "转场时间", confirm: "确定", offscreen: true}
-  - fill:   {id: "ZHUOLUZHOUJIAN", column: "昼间着陆次数"}
-  - fill:   {id: "ZHUOLUYEJIAN",   column: "夜间着陆次数"}
-  - fill:   {id: "REMARK",         column: "备注"}
+  - wheel:  {open: {id: "JINGLITIME",     label: "飞行经历时间"},     column: "飞行经历时间", confirm: "确定", offscreen: true}
+  - wheel:  {open: {id: "YEJIANTIME",     label: "夜间飞行经历时间"}, column: "夜间飞行经历时间", confirm: "确定", offscreen: true}
+  - wheel:  {open: {id: "YIBIAOTIME",     label: "真实仪表时间"},     column: "真实仪表时间", confirm: "确定", offscreen: true}
+  - wheel:  {open: {id: "ZHUANCHANGTIME", label: "转场时间"},         column: "转场时间", confirm: "确定", offscreen: true}
+  - fill:   {id: "ZHUOLUZHOUJIAN", label: "昼间", column: "昼间着陆次数"}
+  - fill:   {id: "ZHUOLUYEJIAN",   label: "夜间", column: "夜间着陆次数"}
+  - fill:   {id: "REMARK",         label: "备注", column: "备注"}
   - hide_keyboard: null
 
 # 提交（逐条确认模式下，你按回车后才会执行）
