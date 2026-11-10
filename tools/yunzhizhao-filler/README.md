@@ -21,16 +21,14 @@
 
    飞行经历时间由 App 自动计算，不用填。
 
-3. 先录 1 条确认（每条填完会停下让你检查，回车提交）：
+3. 全自动录入（默认不需要按回车）：
    ```bash
-   python3.12 filler.py run -d 我的记录.xlsx --limit 1
+   python3.12 filler.py run -d 我的记录.xlsx
    ```
-4. 没问题后全自动批量录入：
-   ```bash
-   python3.12 filler.py run -d 我的记录.xlsx --auto
-   ```
+   想每条填完先检查、按回车才保存，加 `--confirm`（或在 config.yaml 设 `confirm_each: true`）。
    每条流程：点右上角「+」→ 填写 → 保存 → 等「提交成功」→ 关闭 → 下一条。
-   中途出错会截图到 `screenshots/` 并停下；再次运行会提示从断点继续。
+   中途出错会截图到 `screenshots/` 并**停下**（不会把下一条填进半成品页面）；
+   在手机上返回列表页放弃那条未保存的记录，再次运行会提示从断点继续。
    结束（包括出错、Ctrl+C）时自动切回手机原来的输入法。
 
 单独测试某一段：`--only before`（进入新增页）/ `--only record`（只填写）/ `--only submit`（只保存）。

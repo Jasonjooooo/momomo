@@ -1333,7 +1333,7 @@ def cmd_run(args):
         try:
             for g in groups:
                 print(f"== 执行 {g} ==")
-                run_steps(dev, cfg.get(g, []) or [], row, interactive=not args.auto)
+                run_steps(dev, cfg.get(g, []) or [], row, interactive=bool(args.confirm))
             print("✓ 完成")
         finally:
             if hasattr(dev, "restore"):
@@ -1342,7 +1342,10 @@ def cmd_run(args):
     if hasattr(dev, "restore"):
         import atexit
         atexit.register(dev.restore)  # 无论正常结束、出错还是 Ctrl+C，都切回原输入法
-    interactive = not args.auto and not args.dry_run
+    # 默认全自动；--confirm 或 settings.confirm_each: true 时逐条确认
+    confirm = args.confirm or (bool(settings.get("confirm_each", False)) and not args.auto)
+    args.auto = not confirm
+    interactive = confirm and not args.dry_run
     shots = HERE / "screenshots"
 
     print(f"\n共 {len(rows)} 条数据，本次处理第 {start + 1} ~ {end} 条，模式：{'预览' if args.dry_run else ('全自动' if args.auto else '逐条确认')}\n")
@@ -1388,7 +1391,10 @@ def cmd_run(args):
                 except Exception:
                     pass
             if args.auto or args.dry_run:
-                if args.stop_on_error:
+                # 全自动出错时页面可能只填了一半，继续会把下一条填在这个页面上，所以默认停下
+                if not args.keep_going and not args.dry_run:
+                    print(f"    已停止。请在手机上处理好（返回列表页并放弃这条未保存的记录），"
+                          f"再用 --start {i + 1} 从这条继续。")
                     break
                 i += 1
                 continue
@@ -1457,9 +1463,11 @@ def main(argv=None):
     r.add_argument("--sheet", help="Excel 工作表名称，默认第一个")
     r.add_argument("--start", type=int, help="从第几条数据开始（从 1 数起）")
     r.add_argument("--limit", type=int, help="本次最多录入几条")
-    r.add_argument("--auto", action="store_true", help="全自动，不逐条确认")
+    r.add_argument("--auto", action="store_true", help="全自动（默认就是全自动，保留此参数兼容旧命令）")
+    r.add_argument("--confirm", action="store_true", help="逐条确认：每条填完停下，按回车才保存")
     r.add_argument("--dry-run", action="store_true", help="不连手机，只预览")
-    r.add_argument("--stop-on-error", action="store_true", help="全自动模式下出错即停止")
+    r.add_argument("--stop-on-error", action="store_true", help="（已是默认行为）全自动出错即停止")
+    r.add_argument("--keep-going", action="store_true", help="全自动出错后不停，跳到下一条（不推荐）")
     r.add_argument("--only", choices=["before", "record", "submit"],
                    help="只执行一段：before=进入新增页，record=填写，submit=保存及之后（单独测试用）")
     r.set_defaults(func=cmd_run)

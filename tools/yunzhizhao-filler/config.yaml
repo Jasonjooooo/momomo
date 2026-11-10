@@ -63,6 +63,7 @@ settings:
   find_timeout: 5     # 找控件最多等几秒
   max_scrolls: 6      # 找不到时最多上下滚动几次
   step_delay: 0.5     # 每步之后停顿几秒（手机慢就调大）
+  confirm_each: false # true = 每条填完停下等你按回车才保存；false = 全自动（默认）
   fast: true          # 用 adb 点击 + 输入法广播输入（快）；有问题时改 false 退回 uiautomator（慢）
 
 # 每条记录开始前：进入新增页面
