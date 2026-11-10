@@ -898,6 +898,11 @@ def run_steps(dev, steps: list, row: dict[str, str], interactive: bool):
             if not row.get(spec["only_if"], ""):
                 continue
 
+        t_step = time.time()
+        if not isinstance(dev, DryRunDevice) and action in ("click", "fill", "select", "wheel"):
+            what = spec if isinstance(spec, str) else (spec.get("column") or locator_of(spec))
+            val = step_value(spec, row) if isinstance(spec, dict) and action != "click" else ""
+            print(f"    → {action} {what}{' = ' + val if val else ''}", flush=True)
         if action == "click":
             dev.click(locator_of(spec))
         elif action == "click_if_exists":
