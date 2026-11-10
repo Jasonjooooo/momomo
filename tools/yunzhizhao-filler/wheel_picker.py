@@ -86,6 +86,12 @@ def looks_like_item(text: str) -> bool:
     return bool(_ITEM.match(re.sub(r"\s", "", str(text))))
 
 
+def contains(text: str, target: str) -> bool:
+    """文字选项：OCR 结果包含目标即可（「机长」匹配「机长(PIC)」），忽略空格和全/半角括号差异"""
+    n = lambda s: re.sub(r"[\s（）()]", "", str(s)).upper()  # noqa: E731
+    return bool(n(target)) and n(target) in n(text)
+
+
 def same(a: str, b: str) -> bool:
     ia, ib = to_int(a), to_int(b)
     if ia is not None and ib is not None:
@@ -105,7 +111,8 @@ class WheelColumnDriver:
     def __init__(self, col: Column, read: Reader, drag: Dragger, *,
                  item_height: float | None = None, visible_items: int = 5,
                  max_chunk: int = 3, max_iter: int = 80, log: Callable[[str], None] | None = None,
-                 limits: tuple[float, float] | None = None, modulus: int | None = None):
+                 limits: tuple[float, float] | None = None, modulus: int | None = None,
+                 match: str = "exact"):
         self.col = col
         self.read = read
         self.drag = drag
@@ -113,6 +120,7 @@ class WheelColumnDriver:
         self.visible_items = visible_items
         self.max_chunk = max_chunk
         self.max_iter = max_iter
+        self.match = (lambda text, t: contains(text, t)) if match == "contains" else (lambda text, t: same(text, t))
         self.modulus = modulus  # 循环滚轮的格数（如分钟 60），给出时走较短的方向
         self.limits = limits  # 允许手指移动到的屏幕纵向范围；给出时可一次拖很多格
         self.log = log or (lambda s: None)
@@ -273,11 +281,11 @@ class WheelColumnDriver:
                     self._drag_items(diff, item_h)
                     continue
 
-            if abs(cur.cy - self.col.cy) <= item_h / 2 and same(cur.text, target):
+            if abs(cur.cy - self.col.cy) <= item_h / 2 and self.match(cur.text, target):
                 return cur.text
 
             # 目标已可见：直接把它拖到选中线
-            hit = [i for i in items if same(i.text, target)]
+            hit = [i for i in items if self.match(i.text, target)]
             if hit:
                 h = min(hit, key=lambda i: abs(i.cy - self.col.cy))
                 self.drag(self.col.cx, h.cy, self.col.cy)

@@ -207,3 +207,60 @@ def test_open_needs_two_taps():
 
 if __name__ == "__main__":
     test_open_needs_two_taps()
+
+
+class FakeTextPicker(FakeH5):
+    """真机「职位」：点开后是自绘文字滚轮（请选择/机长(PIC)/副驾驶(F/O)…），选项不在界面数据里"""
+    OPTS = ["请选择(Please Select)", "机长(PIC)", "副驾驶(F/O)", "学员(Student)", "教员(Instructor)", "观察员(Observer)"]
+
+    def __init__(self):
+        super().__init__(0, 0)
+        self.open, self.idx, self.value = False, 0, self.OPTS[0]
+
+    def dump_hierarchy(self, compressed=False):
+        bg = ('<node class="android.view.View" text="职位" bounds="[53,1389][617,1446]"/>'
+              f'<node class="android.widget.EditText" resource-id="JOB_dummy" text="{self.value}" bounds="[620,1371][1176,1464]"/>')
+        pk = ('<node class="android.view.View" text="确定" bounds="[1080,1690][1220,1770]"/>'
+              '<node class="android.view.View" text="取消" bounds="[40,1690][180,1770]"/>') if self.open else ""
+        return f'<hierarchy><node class="android.webkit.WebView" text="" scrollable="true" bounds="[0,130][1260,2720]">{bg}{pk}</node></hierarchy>'
+
+    CY = 2249
+
+    def screenshot(self):
+        img = Image.new("RGB", (W, H), "white")
+        d = ImageDraw.Draw(img)
+        f, fs = ImageFont.truetype(FONT, 52), ImageFont.truetype(FONT, 46)
+        d.text((150, 1400), "职位", font=fs, fill="#000"); d.text((700, 1400), self.value, font=fs, fill="#000")
+        if self.open:
+            d.rectangle((0, 1620, W, H), fill="#f6f6f6")
+            d.text((40, 1700), "取消", font=fs, fill="#1677ff"); d.text((1100, 1700), "确定", font=fs, fill="#1677ff")
+            for k in range(-3, 4):
+                i = self.idx + k
+                if 0 <= i < len(self.OPTS):
+                    d.text((W / 2, self.CY + k * 174), self.OPTS[i], font=f if k == 0 else fs,
+                           fill="#000" if k == 0 else "#aaa", anchor="mm")
+        return img
+
+    def on_tap(self, x, y):
+        if not self.open:
+            if 620 <= x <= 1176 and 1371 <= y <= 1464:
+                self.open = True
+        elif 1080 <= x <= 1220 and 1690 <= y <= 1770:
+            self.value, self.open = self.OPTS[self.idx], False
+
+    def drag(self, x, y0, y1):
+        self.idx = max(0, min(len(self.OPTS) - 1, self.idx + round((y0 - y1) / 174)))
+
+
+def test_select_text_wheel():
+    dev = object.__new__(filler.Device)
+    dev.d, dev.timeout, dev.max_scrolls, dev.step_delay, dev.fast = FakeTextPicker(), 1, 0, 0, True
+    dev.select({"id": "JOB_dummy", "label": "职位"}, "机长")
+    assert dev.d.value == "机长(PIC)", dev.d.value
+    dev.select({"id": "JOB_dummy", "label": "职位"}, "教员")
+    assert dev.d.value == "教员(Instructor)", dev.d.value
+    print("✓ 文字滚轮下拉：请选择 → 机长(PIC) → 教员(Instructor)")
+
+
+if __name__ == "__main__":
+    test_select_text_wheel()

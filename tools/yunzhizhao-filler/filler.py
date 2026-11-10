@@ -409,6 +409,12 @@ class Device:
             for attempt in range(10):
                 nodes = self._hier_nodes()
                 r = self._find_node({"text": value}, nodes) or self._find_node({"text_contains": value}, nodes)
+                if not r and attempt == 0 and self._find_node({"text": "确定"}, nodes):
+                    # 弹出的是自绘文字滚轮（选项不在界面数据里）：用 OCR 读选项、拖到中间、点确定
+                    print("      选项是滚轮形式，按文字滚轮处理")
+                    self.wheel({"confirm": "确定", "pattern": r"^(.*)$", "match": "contains",
+                                "read": "ocr", "count": 1, "offscreen": True}, value)
+                    return
                 if r:
                     b = r[0]
                     self._tap((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)
@@ -504,10 +510,13 @@ class Device:
                 return cols, "labels"
 
         # 5) 猜测：「确定」按钮下方到屏幕底部为滚轮区域，按列数等分
-        confirm = spec.get("confirm", "确定")
-        btn = self.d(text=confirm)
-        if btn.exists:
-            _, _, _, bb = parse_bounds(btn.info["bounds"])
+        confirm = spec.get("confirm") or "确定"
+        cb = self._find_node_bounds({"text": confirm}, nodes)
+        if cb is None and not self.fast:
+            btn = self.d(text=confirm)
+            cb = parse_bounds(btn.info["bounds"]) if btn.exists else None
+        if cb is not None:
+            bb = cb[3]
             bottom = int(h * float(spec.get("area_bottom", 0.97)))
             if bottom - bb > 100:
                 return split_area((0, bb + 10, w, bottom), int(spec.get("count", need)), spec.get("weights")), "guess"
@@ -745,7 +754,7 @@ class Device:
             drv = WheelColumnDriver(col, timed_reader, timed_drag, modulus=modulus,
                                     item_height=spec.get("item_height"),
                                     visible_items=int(spec.get("visible_items", 3 if how == "numberpicker" else 5)),
-                                    log=print,
+                                    log=print, match=spec.get("match", "exact"),
                                     limits=None if spec.get("short_drag") else
                                     (scr_h * 0.08, scr_h * (1.8 if spec.get("offscreen") else 0.96)))
             try:
