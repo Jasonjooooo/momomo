@@ -115,6 +115,28 @@ def test_ocr_misread():
     assert sim.value() == "09", sim.value()
 
 
+def test_long_drag_fewer_moves():
+    """允许拖到滚轮外（limits）后，拨 50 格只需少量拖动"""
+    short = SimWheel(range(60), 0, cyclic=True)
+    n_short = run(short, "50")
+    long_ = SimWheel(range(60), 0, cyclic=True)
+    n_long = run(long_, "50", limits=(200, 2600))
+    assert n_long < n_short and n_long <= 6, (n_short, n_long)
+    print(f"   拨 50 格：短拖 {n_short} 次 → 长拖 {n_long} 次")
+
+
+def test_long_drag_inexact_ratio():
+    """手指移动与滚轮实际移动不是 1:1（只走了 85%），靠读数校正仍能拨准"""
+    class Lossy(SimWheel):
+        def drag(self, x, y0, y1):
+            self.drags += 1
+            self.pos = round(self.pos + (y0 - y1) / self.item_h * 0.85) % len(self.values)
+    for t in ("59", "07", "33"):
+        sim = Lossy(range(60), 20, cyclic=True)
+        n = run(sim, t, limits=(200, 2600))
+        assert n <= 8, n
+
+
 def test_blind():
     sim = SimWheel(range(60), 10, cyclic=True)
     blind_set(sim.col, sim.drag, 10, 47, sim.item_h)

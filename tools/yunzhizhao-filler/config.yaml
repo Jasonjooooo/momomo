@@ -73,10 +73,16 @@ record_steps:
   - fill:   {id: "TAKEADD",   column: "起飞站"}
   - fill:   {id: "ARRVADD",   column: "降落站"}
   - hide_keyboard: null
-  - manual: "TODO 请手动选择【出发时刻】{出发时刻} 和【到达时刻】{到达时刻}"
+  # 时/分滚轮（H5 自绘，靠 OCR 读数，需安装 rapidocr_onnxruntime）
+  - wheel:  {open: {id: "TAKETIME-time"}, column: "出发时刻", confirm: "确定"}
+  - wheel:  {open: {id: "ARRVTIME-time"}, column: "到达时刻", confirm: "确定"}
   - select: {id: "JOB",        column: "职位"}       # 选项文字只要包含表格里的值即可，如「机长」
   - select: {id: "YIBIAOTYPE", column: "进近方式"}
-  - manual: "TODO 请检查/填写【飞行经历时间】{飞行经历时间}、夜间、仪表、转场时间"
+  # 以下时间字段若与出发时刻是同一种滚轮即可自动；表格里留空则跳过
+  - wheel:  {open: {id: "JINGLITIME"},     column: "飞行经历时间", confirm: "确定"}
+  - wheel:  {open: {id: "YEJIANTIME"},     column: "夜间飞行经历时间", confirm: "确定"}
+  - wheel:  {open: {id: "YIBIAOTIME"},     column: "真实仪表时间", confirm: "确定"}
+  - wheel:  {open: {id: "ZHUANCHANGTIME"}, column: "转场时间", confirm: "确定"}
   - fill:   {id: "ZHUOLUZHOUJIAN", column: "昼间着陆次数"}
   - fill:   {id: "ZHUOLUYEJIAN",   column: "夜间着陆次数"}
   - fill:   {id: "REMARK",         column: "备注"}

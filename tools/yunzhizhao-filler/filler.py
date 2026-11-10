@@ -437,14 +437,15 @@ class Device:
 
     def _drag_no_fling(self, x, y0, y1):
         """按下 → 缓慢移动 → 停顿 → 抬起：抬手速度为 0，滚轮不会惯性甩动"""
-        steps = max(8, int(abs(y1 - y0) / 15))
+        steps = getattr(self, "wheel_steps", 12)
         t = self.d.touch
         t.down(x, y0)
-        time.sleep(0.05)
+        time.sleep(0.03)
         for k in range(1, steps + 1):
             t.move(x, y0 + (y1 - y0) * k / steps)
-            time.sleep(0.012)
-        time.sleep(0.25)
+        # 末尾在终点再停一下，确保抬手时速度为 0
+        t.move(x, y1)
+        time.sleep(getattr(self, "wheel_hold", 0.15))
         t.up(x, y1)
         time.sleep(self.wheel_settle)
 
@@ -454,7 +455,10 @@ class Device:
         if spec.get("open"):  # 先点开滚轮
             self.click(locator_of(spec["open"]))
             time.sleep(0.6)
-        self.wheel_settle = float(spec.get("settle", 0.35))
+        self.wheel_settle = float(spec.get("settle", 0.3))
+        self.wheel_steps = int(spec.get("drag_steps", 12))
+        self.wheel_hold = float(spec.get("hold", 0.15))
+        _, scr_h = self.d.window_size()
         parts = split_value(value, spec.get("pattern"))
         targets = spec.get("wheels") or list(range(len(parts)))
         if len(targets) != len(parts):
@@ -493,7 +497,8 @@ class Device:
             drv = WheelColumnDriver(col, reader, self._drag_no_fling,
                                     item_height=spec.get("item_height"),
                                     visible_items=int(spec.get("visible_items", 3 if how == "numberpicker" else 5)),
-                                    log=print)
+                                    log=print,
+                                    limits=None if spec.get("short_drag") else (scr_h * 0.08, scr_h * 0.96))
             try:
                 drv.set(part)
             except WheelError as e:

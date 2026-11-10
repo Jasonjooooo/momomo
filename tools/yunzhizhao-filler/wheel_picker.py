@@ -104,7 +104,8 @@ Dragger = Callable[[float, float, float], None]  # (x, y_from, y_to)
 class WheelColumnDriver:
     def __init__(self, col: Column, read: Reader, drag: Dragger, *,
                  item_height: float | None = None, visible_items: int = 5,
-                 max_chunk: int = 3, max_iter: int = 80, log: Callable[[str], None] | None = None):
+                 max_chunk: int = 3, max_iter: int = 80, log: Callable[[str], None] | None = None,
+                 limits: tuple[float, float] | None = None):
         self.col = col
         self.read = read
         self.drag = drag
@@ -112,6 +113,7 @@ class WheelColumnDriver:
         self.visible_items = visible_items
         self.max_chunk = max_chunk
         self.max_iter = max_iter
+        self.limits = limits  # 允许手指移动到的屏幕纵向范围；给出时可一次拖很多格
         self.log = log or (lambda s: None)
         self._direction = None  # 数字随 y 增大而增大为 +1，减小为 -1
         self._numeric_target = False
@@ -188,6 +190,22 @@ class WheelColumnDriver:
     def _drag_items(self, n_items: float, item_h: float):
         """内容向上移动 n_items 格（n<0 则向下）。分段拖动，每段不超过 max_chunk 格。"""
         remaining = n_items
+        if self.limits:
+            # 手指从滚轮内侧边缘按下，可一直拖到滚轮外，单次可移动很多格
+            lo, hi = self.limits
+            m = min(item_h * 0.5, self.col.height * 0.2)
+            while abs(remaining) > 1e-6:
+                if remaining > 0:  # 内容上移：从列底部往上拖
+                    y0 = self.col.bottom - m
+                    cap = int((y0 - lo) // item_h)
+                else:
+                    y0 = self.col.top + m
+                    cap = int((hi - y0) // item_h)
+                cap = max(1, cap)
+                step = max(-cap, min(cap, remaining))
+                self.drag(self.col.cx, y0, y0 - step * item_h)
+                remaining -= step
+            return
         while abs(remaining) > 1e-6:
             step = max(-self.max_chunk, min(self.max_chunk, remaining))
             dist = step * item_h
