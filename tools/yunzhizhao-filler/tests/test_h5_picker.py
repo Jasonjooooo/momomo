@@ -69,6 +69,12 @@ class FakeH5:
         c = 0 if x < 630 else 1
         self.pos[c] = (self.pos[c] + round((y0 - y1) / IH)) % (24 if c == 0 else 60)
 
+    def swipe_points(self, pts, duration):
+        """模拟 uiautomator2 的一次性手势：必须在终点停留（末尾有重复点）才不会甩动"""
+        assert pts[-1] == pts[-2], "终点没有停留，会产生惯性"
+        self.swipes = getattr(self, "swipes", 0) + 1
+        self.drag(pts[0][0], pts[0][1], pts[-1][1])
+
 
 def main():
     try:
@@ -80,6 +86,7 @@ def main():
     dev.wheel({"confirm": "确定"}, "09:30")
     assert dev.d.pos == [9, 30], dev.d.pos
     assert dev.d.confirmed
+    assert getattr(dev.d, "swipes", 0) > 0, "应使用 swipe_points"
     dev.wheel({"confirm": "确定"}, "23:05")
     assert dev.d.pos == [23, 5], dev.d.pos
     dev.wheel({"confirm": "确定", "cyclic": [24, 60]}, "09:30")

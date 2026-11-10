@@ -145,6 +145,12 @@ def test_cyclic_shortest():
     assert nb < na, (na, nb)
 
 
+def test_cyclic_but_not_really():
+    """配置了循环但这列其实不循环：自动退回普通方向"""
+    sim = SimWheel(range(60), 5)  # 不循环
+    run(sim, "55", modulus=60, limits=(200, 2600))
+
+
 def test_blind():
     sim = SimWheel(range(60), 10, cyclic=True)
     blind_set(sim.col, sim.drag, 10, 47, sim.item_h)

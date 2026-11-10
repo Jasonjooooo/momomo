@@ -253,6 +253,9 @@ class WheelColumnDriver:
                     key = cons
                     stuck = stuck + 1 if key == last_center else 0
                     last_center = key
+                    if stuck >= 3 and self.modulus:
+                        self.log("      这一列似乎不循环，改走普通方向")
+                        self.modulus, stuck = None, 0
                     if stuck >= 3:
                         raise WheelError(f"滚不到「{target}」，当前停在「{cons}」（可能超出可选范围）")
                     st = self._step(items, item_h)

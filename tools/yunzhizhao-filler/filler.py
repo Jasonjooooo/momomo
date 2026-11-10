@@ -436,20 +436,42 @@ class Device:
         return [Item(t, (tp + b) / 2) for t, l, tp, r, b in self._ocr_tokens(crop, col.left, col.top)]
 
     def _drag_no_fling(self, x, y0, y1):
-        """按下 → 缓慢移动 → 停顿 → 抬起：抬手速度为 0，滚轮不会惯性甩动"""
-        steps = getattr(self, "wheel_steps", 12)
-        t = self.d.touch
-        t.down(x, y0)
-        time.sleep(0.03)
-        for k in range(1, steps + 1):
-            t.move(x, y0 + (y1 - y0) * k / steps)
-        # 末尾在终点再停一下，确保抬手时速度为 0
-        t.move(x, y1)
-        time.sleep(getattr(self, "wheel_hold", 0.15))
-        t.up(x, y1)
+        """拖动滚轮：移动到终点后在终点停住一会儿再抬手，抬手速度为 0，滚轮不会惯性甩动。
+        默认用 swipe_points 一次性下发整个手势（快）；drag_mode: touch 时逐个事件下发（慢，备用）"""
+        x, y0, y1 = int(x), int(y0), int(y1)
+        if getattr(self, "wheel_drag_mode", "swipe") == "swipe" and hasattr(self.d, "swipe_points"):
+            hold_pts = max(1, int(getattr(self, "wheel_hold", 0.12) / 0.1))
+            pts = [(x, y0), (x, (y0 + y1) // 2), (x, y1)] + [(x, y1)] * hold_pts
+            self.d.swipe_points(pts, getattr(self, "wheel_seg", 0.1))
+        else:
+            steps = getattr(self, "wheel_steps", 6)
+            t = self.d.touch
+            t.down(x, y0)
+            for k in range(1, steps + 1):
+                t.move(x, y0 + (y1 - y0) * k / steps)
+            t.move(x, y1)
+            time.sleep(getattr(self, "wheel_hold", 0.12))
+            t.up(x, y1)
         self._need_settle = True
 
     def wheel(self, spec: dict, value: str):
+        """拨滚轮期间临时把 uiautomator 的「等待界面静止」超时设为 0（滚轮动画会让每个操作都等很久）"""
+        saved = None
+        try:
+            saved = self.d.jsonrpc.getConfigurator()
+            self.d.jsonrpc.setConfigurator(dict(saved, waitForIdleTimeout=0))
+        except Exception:
+            saved = None
+        try:
+            return self._wheel(spec, value)
+        finally:
+            if saved is not None:
+                try:
+                    self.d.jsonrpc.setConfigurator(saved)
+                except Exception:
+                    pass
+
+    def _wheel(self, spec: dict, value: str):
         from wheel_picker import WheelColumnDriver, WheelError, blind_set, split_value, to_int
 
         if spec.get("open"):  # 先点开滚轮
@@ -457,7 +479,9 @@ class Device:
             time.sleep(0.6)
         self.wheel_settle = float(spec.get("settle", 0.3))
         self.wheel_steps = int(spec.get("drag_steps", 6))
-        self.wheel_hold = float(spec.get("hold", 0.12))
+        self.wheel_hold = float(spec.get("hold", 0.2))
+        self.wheel_seg = float(spec.get("segment", 0.1))      # swipe_points 每段耗时（秒）
+        self.wheel_drag_mode = spec.get("drag_mode", "swipe")  # swipe(快) | touch(慢，备用)
         _, scr_h = self.d.window_size()
         parts = split_value(value, spec.get("pattern"))
         targets = spec.get("wheels") or list(range(len(parts)))
