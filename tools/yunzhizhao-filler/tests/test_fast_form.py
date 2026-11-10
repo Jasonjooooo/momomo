@@ -38,6 +38,12 @@ class FakeForm:
         return 500 + FIELDS.index(f) * ROW - self.scroll
 
     def dump_hierarchy(self, compressed=False):
+        if self.page == "dialog":
+            return ('<hierarchy><node class="android.widget.FrameLayout" text="" bounds="[0,0][1260,2720]">'
+                    '<node class="android.widget.TextView" text="提示" bounds="[170,1200][330,1290]"/>'
+                    '<node class="android.widget.TextView" text="提交成功" bounds="[170,1320][420,1400]"/>'
+                    '<node class="android.widget.Button" text="关闭" bounds="[920,1560][1130,1670]"/>'
+                    '</node></hierarchy>')
         if self.page == "list":
             return ('<hierarchy><node class="android.webkit.WebView" text="" bounds="[0,130][1260,2720]">'
                     '<node class="android.view.View" text="飞行记录" bounds="[400,180][860,290]"/>'
@@ -90,6 +96,10 @@ class FakeForm:
         m = re.match(r"input tap (\d+) (\d+)", cmd)
         if m:
             x, y = int(m.group(1)), int(m.group(2))
+            if self.page == "dialog":
+                if 900 < x < 1150 and 1550 < y < 1680:  # 「关闭」
+                    self.page = "list"
+                return SimpleNamespace(output="")
             if self.page == "list":
                 if x > 1100 and 180 < y < 290:  # 右上角「+」
                     self.plus_taps += 1
@@ -108,7 +118,7 @@ class FakeForm:
             elif f == "subbtn":
                 self.saved = True
                 self.saved_rows.append(dict(self.values))
-                self.page = "list"
+                self.page = "dialog"   # 真机：弹出「提示 / 提交成功 / 关闭」
             else:
                 self.focus = f
         if cmd.startswith("input keyevent KEYCODE_MOVE_END"):
@@ -131,6 +141,9 @@ class FakeForm:
         dr = ImageDraw.Draw(img)
         f = ImageFont.truetype("/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc", 46)
         dr.rectangle((0, 0, W, HEADER), fill="#1a3a8a")
+        if self.page == "dialog":
+            dr.text((250, 1360), "提交成功", font=f, fill="#000"); dr.text((1020, 1610), "关闭", font=f, fill="#099", anchor="mm")
+            return img
         if self.page == "list":
             dr.text((630, 235), "飞行记录", font=f, fill="white", anchor="mm"); dr.text((1175, 235), "+", font=f, fill="white", anchor="mm")
             return img
@@ -178,6 +191,8 @@ def test_fill_and_select():
         {"fill": {"id": "REMARK", "label": "备注", "column": "备注"}},
         {"hide_keyboard": None},
         {"click": {"id": "subbtn", "ocr": "保存"}},
+        {"wait_for": {"text": "提交成功", "timeout": 3}},
+        {"click": {"text": "关闭"}},
     ]
     filler.run_steps(dev, steps, row, interactive=False)
     v = dev.d.values
