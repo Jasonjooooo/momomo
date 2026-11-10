@@ -532,6 +532,7 @@ class Device:
             self._last_tokens = self._ocr_tokens(self.d.screenshot())
             cols = columns_from_tokens(self._last_tokens, need, w)
             if len(cols) >= need:
+                self._fix_center_by_header(cols, spec, w, h)
                 return cols, "ocr-scan"
 
         # 4) 按「年 月 日 / 时 分」这类表头文字划分列：每列以表头为中心，区域从表头下方开始
@@ -569,6 +570,23 @@ class Device:
             if bottom - bb > 100:
                 return split_area((0, bb + 10, w, bottom), int(spec.get("count", need)), spec.get("weights")), "guess"
         raise LookupError("找不到滚轮。请打开滚轮后运行 dump 查看，或在 wheel 中配置 area")
+
+    def _fix_center_by_header(self, cols, spec, w, h):
+        """底部弹出式滚轮：选中线在「取消/确定」栏与屏幕底部的正中间。
+        不能用可见数字的中点推算——时长滚轮从 00 开始时中线上方是空的，会偏到下面一格。"""
+        names = {spec.get("confirm") or "确定", "取消"}
+        heads = [t for t in getattr(self, "_last_tokens", []) if t[0].strip() in names]
+        top = min(c.top for c in cols)
+        heads = [t for t in heads if t[4] < top + 40]  # 只认滚轮上方的按钮栏
+        if not heads:
+            return
+        hb = max(t[4] for t in heads) + 25
+        center = (hb + h) / 2
+        for c in cols:
+            c.top = int(hb)
+            c.bottom = int(h * 0.98)
+            c.center_y = center
+        print(f"      选中线按按钮栏定位：y={int(center)}")
 
     def _read_hier(self, col):
         from wheel_picker import Item

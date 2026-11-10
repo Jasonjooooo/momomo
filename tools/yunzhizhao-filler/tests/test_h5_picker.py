@@ -339,3 +339,49 @@ def test_select_list_picker():
 
 if __name__ == "__main__":
     test_select_list_picker()
+
+
+class FakeDuration(FakeH5):
+    """真机「真实仪表时间/转场时间」：时长滚轮从 00:00 开始，不循环，中线上方是空的。
+    选中线在按钮栏与屏幕底部正中间"""
+    def __init__(self):
+        super().__init__(0, 0)
+        self.mod = [24, 60]
+
+    def screenshot(self):
+        img = Image.new("RGB", (W, H), "#eee")
+        d = ImageDraw.Draw(img)
+        f, fs = ImageFont.truetype(FONT, 60), ImageFont.truetype(FONT, 46)
+        d.rectangle((0, 1760, W, H), fill="white")
+        d.text((60, 1790), "取消", font=fs, fill="#666"); d.text((1100, 1790), "确定", font=fs, fill="#1677ff")
+        cy = (1790 + 46 + 25 + H) / 2
+        self.cy = cy
+        for c, (l, r) in enumerate(self.cols()):
+            for k in range(-3, 4):
+                v = self.pos[c] + k
+                if 0 <= v < self.mod[c] and 1880 < cy + k * IH < H - 30:
+                    d.text(((l + r) / 2, cy + k * IH), f"{v:02d}", font=f if k == 0 else fs,
+                           fill="#000" if k == 0 else "#bbb", anchor="mm")
+        return img
+
+    def drag(self, x, y0, y1):
+        c = 0 if x < 630 else 1
+        self.pos[c] = max(0, min(self.mod[c] - 1, self.pos[c] + round((y0 - y1) / IH)))
+
+
+def test_duration_from_zero():
+    try:
+        import rapidocr_onnxruntime  # noqa: F401
+    except ImportError:
+        print("未安装 rapidocr_onnxruntime，跳过"); return
+    for target in ("01:49", "01:58", "00:30", "02:15"):
+        dev = object.__new__(filler.Device)
+        dev.d, dev.timeout, dev.max_scrolls, dev.step_delay, dev.fast = FakeDuration(), 1, 0, 0, True
+        dev.wheel({"confirm": "确定", "offscreen": True}, target)
+        got = "%02d:%02d" % tuple(dev.d.pos)
+        assert got == target, (target, got)
+    print("✓ 时长滚轮从 00:00 开始（中线上方为空）：01:49 / 01:58 / 00:30 / 02:15 都对")
+
+
+if __name__ == "__main__":
+    test_duration_from_zero()
