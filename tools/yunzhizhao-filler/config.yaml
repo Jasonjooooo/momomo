@@ -1,7 +1,9 @@
 # =============================================================================
 # 云执照飞行记录录入步骤配置
 # =============================================================================
-# ⚠️ 下面的按钮文字/字段名是示例，必须按你手机上 App 的实际界面修改：
+# 已按「云执照 com.ccar.apk · 135飞机单发陆地-航班飞行」页面的控件编号(id)配置。
+# 标 TODO 的是还没确认交互方式的字段，目前先暂停让你手动操作。
+# 其他页面/版本如有不同，按下面方法调整：
 #    1. 在手机上打开云执照，进入「新增飞行记录」页面
 #    2. 电脑运行：python filler.py dump
 #    3. 对照打印出来的文字，修改下面的 text / label
@@ -55,36 +57,35 @@
 settings:
   find_timeout: 5     # 找控件最多等几秒
   max_scrolls: 6      # 找不到时最多上下滚动几次
-  step_delay: 0.4     # 每步之后停顿几秒（手机慢就调大）
+  step_delay: 0.5     # 每步之后停顿几秒（手机慢就调大）
 
 # 每条记录开始前：进入新增页面
-before_each:
-  - click_if_exists: "我知道了"
-  - click: {text_contains: "新增"}      # ← 改成 App 里「添加飞行记录」按钮的文字
-  - wait: 1
+# TODO：确认从列表页进入「135飞机单发陆地-航班飞行」新增页面的按钮后再填写。
+#       目前留空 = 需要你事先停在新增页面上。
+before_each: []
 
-# 填写表单
+# 填写表单（id 来自 dump 输出）
 record_steps:
-  - wheel:  {open: {label: "飞行日期"}, column: "飞行日期", confirm: "确定"}
-  - select: {label: "机型", column: "机型"}
-  - fill:   {label: "起飞地点", column: "起飞地点"}
-  - wheel:  {open: {label: "起飞时间"}, column: "起飞时间"}   # 若能直接输入，改成 fill
-  - wheel:  {open: {label: "降落时间"}, column: "降落时间"}
-  - fill:   {label: "飞行时长", column: "飞行时长(分钟)"}
-  - select: {label: "飞行性质", column: "飞行性质"}
-  - fill:   {label: "备注", column: "备注"}
+  - manual: "TODO 请手动选择【日期】{日期}"
+  - fill:   {id: "AIRNUM",    column: "航班号"}
+  - fill:   {id: "AIRMODEL",  column: "航空器型号"}
+  - fill:   {id: "AIRREGNUM", column: "航空器登记号"}
+  - fill:   {id: "TAKEADD",   column: "起飞站"}
+  - fill:   {id: "ARRVADD",   column: "降落站"}
+  - hide_keyboard: null
+  - manual: "TODO 请手动选择【出发时刻】{出发时刻} 和【到达时刻】{到达时刻}"
+  - select: {id: "JOB",        column: "职位"}       # 选项文字只要包含表格里的值即可，如「机长」
+  - select: {id: "YIBIAOTYPE", column: "进近方式"}
+  - manual: "TODO 请检查/填写【飞行经历时间】{飞行经历时间}、夜间、仪表、转场时间"
+  - fill:   {id: "ZHUOLUZHOUJIAN", column: "昼间着陆次数"}
   - hide_keyboard: null
 
 # 提交（逐条确认模式下，你按回车后才会执行）
-submit_steps:
-  - click: "提交"                       # ← 改成 App 里的「保存/提交」按钮文字
-  - wait: 2
-  - click_if_exists: "确定"
+# TODO：确认页面底部「保存」按钮的文字后再填写。目前留空 = 你自己在手机上点保存。
+submit_steps: []
 
-# 每条成功后（例如回到列表页）
+# 每条成功后
 after_each: []
 
-# 逐条确认时选择「跳过」后执行（默认按一次返回键放弃本条）
-on_skip:
-  - back: null
-  - click_if_exists: "确定"
+# 逐条确认时选择「跳过」后执行（目前不做任何操作，由你在手机上处理）
+on_skip: []
