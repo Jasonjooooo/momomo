@@ -78,6 +78,14 @@ def to_int(text: str) -> int | None:
     return int(m.group()) if m else None
 
 
+_ITEM = re.compile(r"^\D{0,3}\d{1,4}\D{0,3}$")
+
+
+def looks_like_item(text: str) -> bool:
+    """像滚轮里的一项：09 / 30分 / 2026年 / 第3天；排除「ILS CAT1」这类页面文字"""
+    return bool(_ITEM.match(re.sub(r"\s", "", str(text))))
+
+
 def same(a: str, b: str) -> bool:
     ia, ib = to_int(a), to_int(b)
     if ia is not None and ib is not None:
@@ -106,10 +114,13 @@ class WheelColumnDriver:
         self.max_iter = max_iter
         self.log = log or (lambda s: None)
         self._direction = None  # 数字随 y 增大而增大为 +1，减小为 -1
+        self._numeric_target = False
 
     # --- 辅助 ---
     def _items(self) -> list[Item]:
         its = [i for i in self.read(self.col) if self.col.top - 5 <= i.cy <= self.col.bottom + 5 and str(i.text).strip()]
+        if self._numeric_target:
+            its = [i for i in its if looks_like_item(i.text)]
         return sorted(its, key=lambda i: i.cy)
 
     def _est_item_h(self, items: list[Item]) -> float:
@@ -132,6 +143,43 @@ class WheelColumnDriver:
         if ups != downs:
             self._direction = 1 if ups > downs else -1
 
+    def _consensus(self, items: list[Item], item_h: float) -> int | None:
+        """每一格按「数值 - 方向×离中线的格数」推算中线上的值，取多数票，单格 OCR 误读不影响结果"""
+        from collections import Counter
+
+        d = self._direction or 1
+        st = self._step(items, item_h)
+        votes = Counter()
+        for it in items:
+            v = to_int(it.text)
+            if v is None:
+                continue
+            k = round((it.cy - self.col.cy) / item_h)
+            votes[v - d * st * k] += 1
+        if not votes:
+            return None
+        (best, n), *rest = votes.most_common()
+        if rest and rest[0][1] == n and n == 1 and len(items) > 1:
+            # 票数打平且都只有一票：取离中线最近那一格的推算值
+            near = min((i for i in items if to_int(i.text) is not None), key=lambda i: abs(i.cy - self.col.cy))
+            return to_int(near.text) - d * st * round((near.cy - self.col.cy) / item_h)
+        return best
+
+    def _step(self, items: list[Item], item_h: float) -> int:
+        """相邻两格的数值差（分钟滚轮可能是 5 分钟一格），取多数"""
+        from collections import Counter
+
+        diffs = Counter()
+        nums = [(to_int(i.text), round((i.cy - self.col.cy) / item_h)) for i in items if to_int(i.text) is not None]
+        for (a, ka), (b, kb) in zip(nums, nums[1:]):
+            if kb - ka == 1 and a != b:
+                diffs[abs(b - a)] += 1
+        if diffs:
+            st, n = diffs.most_common(1)[0]
+            if n >= 2 or len(diffs) == 1:
+                self._step_cache = st
+        return getattr(self, "_step_cache", 1)
+
     def _center_item(self, items: list[Item]) -> Item | None:
         if not items:
             return None
@@ -153,6 +201,7 @@ class WheelColumnDriver:
 
     # --- 主流程 ---
     def set(self, target: str) -> str:
+        self._numeric_target = to_int(target) is not None
         last_center = None
         stuck = 0
         search_dir = 1
@@ -164,6 +213,29 @@ class WheelColumnDriver:
             self._update_direction(items)
             item_h = self._est_item_h(items)
             cur = self._center_item(items)
+            ti = to_int(target)
+            if ti is not None:
+                cons = self._consensus(items, item_h)
+                snapped = abs(cur.cy - self.col.cy) <= item_h / 2
+                if cons == ti and snapped:
+                    return target
+                if cons is not None:
+                    key = cons
+                    stuck = stuck + 1 if key == last_center else 0
+                    last_center = key
+                    if stuck >= 3:
+                        raise WheelError(f"滚不到「{target}」，当前停在「{cons}」（可能超出可选范围）")
+                    st = self._step(items, item_h)
+                    if (ti - cons) % st:
+                        raise WheelError(f"「{target}」不在可选项里（这一列每格相差 {st}）")
+                    diff = (ti - cons) // st * (self._direction or 1)
+                    if diff == 0:  # 值对了但没对齐中线：把最近的一格拖到中线
+                        self.drag(self.col.cx, cur.cy, self.col.cy)
+                        continue
+                    self.log(f"      当前 {cons} → 目标 {target}，拖动 {diff:+d} 格")
+                    self._drag_items(diff, item_h)
+                    continue
+
             if abs(cur.cy - self.col.cy) <= item_h / 2 and same(cur.text, target):
                 return cur.text
 

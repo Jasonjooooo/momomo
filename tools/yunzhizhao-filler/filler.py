@@ -343,7 +343,30 @@ class Device:
         if len(sc) >= need:
             return sorted(sc, key=lambda c: c.left), "scrollable"
 
-        # 3) 猜测：「确定」按钮下方到屏幕底部为滚轮区域，按列数等分
+        # 3) 按「年 月 日 / 时 分」这类表头文字划分列：每列以表头为中心，区域从表头下方开始
+        units = spec.get("labels") or ["年", "月", "日", "时", "分", "秒"]
+        labs = []
+        for n in nodes:
+            t = (n.get("text") or "").strip()
+            if t in units:
+                labs.append((t, parse_bounds(n.get("bounds"))))
+        if len(labs) >= need:
+            labs.sort(key=lambda x: x[1][0])
+            ys = [b[3] for _, b in labs]
+            top = max(ys) + 5
+            bottom = int(h * float(spec.get("area_bottom", 0.97)))
+            btn = self.d(text=spec.get("confirm") or "确定")
+            if btn.exists:
+                _, bt, _, bb = parse_bounds(btn.info["bounds"])
+                if bt > top + 100:  # 确定按钮在滚轮下方
+                    bottom = bt - 5
+            cxs = [(b[0] + b[2]) / 2 for _, b in labs]
+            edges = [0] + [(a + b) / 2 for a, b in zip(cxs, cxs[1:])] + [w]
+            cols = [Column(int(edges[i]), top, int(edges[i + 1]), bottom) for i in range(len(labs))]
+            if bottom - top > 150:
+                return cols, "labels"
+
+        # 4) 猜测：「确定」按钮下方到屏幕底部为滚轮区域，按列数等分
         confirm = spec.get("confirm", "确定")
         btn = self.d(text=confirm)
         if btn.exists:
@@ -446,13 +469,15 @@ class Device:
                 cy = float(spec["center_y"])
                 col.center_y = cy * self.d.window_size()[1] if cy <= 1 else cy
 
-            def reader(c, _m=mode):
+            def reader(c, _m=mode, _how=how):
                 if _m == "blind":
                     return []
-                its = self._read_hier(c) if _m in ("auto", "text") else []
-                if not its and _m in ("auto", "ocr"):
+                drawn = _how in ("labels", "guess", "area")  # 自绘滚轮：界面树里多半是被盖住的页面文字
+                if _m == "ocr" or (_m == "auto" and drawn):
                     its = self._read_ocr(c)
-                return its
+                    if its or _m == "ocr":
+                        return its
+                return self._read_hier(c)
 
             drv = WheelColumnDriver(col, reader, self._drag_no_fling,
                                     item_height=spec.get("item_height"),
@@ -473,6 +498,28 @@ class Device:
             if btn.exists:
                 btn.click()
                 time.sleep(self.step_delay)
+
+    def wheel_debug(self, spec: dict, need: int, out: Path):
+        """不拖动，只把识别到的列区域和读到的数字画在截图上"""
+        from PIL import ImageDraw
+
+        cols, how = self._wheel_columns(spec, need)
+        img = self.d.screenshot().convert("RGB")
+        dr = ImageDraw.Draw(img)
+        print(f"识别方式：{how}，共 {len(cols)} 列")
+        for i, c in enumerate(cols):
+            dr.rectangle((c.left, c.top, c.right, c.bottom), outline=(255, 0, 0), width=6)
+            dr.line((c.left, c.cy, c.right, c.cy), fill=(0, 160, 255), width=4)
+            ocr = self._read_ocr(c)
+            hier = self._read_hier(c)
+            print(f"  第 {i} 列 位置=[{c.left},{c.top}][{c.right},{c.bottom}]")
+            print(f"     OCR 读到：{[(it.text, int(it.cy)) for it in ocr]}")
+            print(f"     界面文字：{[(it.text, int(it.cy)) for it in hier]}")
+            for it in ocr:
+                dr.ellipse((c.left + 10, it.cy - 12, c.left + 34, it.cy + 12), fill=(0, 200, 0))
+        img.thumbnail((900, 2000))
+        img.save(out)
+        print(f"调试截图已保存：{out}")
 
     def back(self):
         self.d.press("back")
@@ -733,7 +780,13 @@ def cmd_wheel(args):
         spec["wheels"] = args.wheels
     if args.area:
         spec["area"] = args.area
-    Device(args.serial, cfg.get("settings", {}) or {}).wheel(spec, args.value)
+    dev = Device(args.serial, cfg.get("settings", {}) or {})
+    if args.debug:
+        from wheel_picker import split_value
+        need = max(args.wheels or [len(split_value(args.value)) - 1]) + 1
+        dev.wheel_debug(spec, need, HERE / "wheel_debug.png")
+        return
+    dev.wheel(spec, args.value)
     print("完成")
 
 
@@ -771,6 +824,7 @@ def main(argv=None):
     w.add_argument("--area", type=float, nargs=4, help="滚轮区域 x1 y1 x2 y2（像素或 0~1 比例）")
     w.add_argument("--read", default="auto", choices=["auto", "text", "ocr", "blind"])
     w.add_argument("--confirm", default="", help='拨好后点的按钮，默认不点；如 "确定"')
+    w.add_argument("--debug", action="store_true", help="不拖动，只保存标注了识别区域的截图 wheel_debug.png")
     w.set_defaults(func=cmd_wheel)
 
     t = sub.add_parser("template", help="生成数据模板 CSV")

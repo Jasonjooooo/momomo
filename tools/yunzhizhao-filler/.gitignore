@@ -2,3 +2,4 @@
 screenshots/
 __pycache__/
 tests/ocr_wheel_result.png
+wheel_debug.png

@@ -100,6 +100,21 @@ def test_out_of_range():
     raise AssertionError("应当报错")
 
 
+def test_step_five_minutes():
+    sim = SimWheel(range(0, 60, 5), 2, cyclic=True)
+    run(sim, "45")
+    run(sim, "05")
+
+
+def test_ocr_misread():
+    """中间那格被 OCR 误读（09 → 60），靠其它格投票仍能拨对"""
+    sim = SimWheel(range(24), 0, cyclic=True)
+    orig = sim.read
+    sim.read = lambda col: [Item("60" if same(i.text, "09") else i.text, i.cy) for i in orig(col)]
+    WheelColumnDriver(sim.col, sim.read, sim.drag).set("09")
+    assert sim.value() == "09", sim.value()
+
+
 def test_blind():
     sim = SimWheel(range(60), 10, cyclic=True)
     blind_set(sim.col, sim.drag, 10, 47, sim.item_h)
