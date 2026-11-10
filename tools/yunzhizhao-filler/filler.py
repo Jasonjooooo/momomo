@@ -513,7 +513,7 @@ class Device:
                 flag = " [可点]" if n.get("clickable") == "true" else ""
                 extra = f"  desc={desc!r}" if desc else ""
                 extra += f"  id={rid}" if rid else ""
-                print(f"  {text!r}{extra}{flag}")
+                print(f"  {text!r}{extra}{flag}  位置={b}")
         wheels = [n for n in root.iter("node") if n.get("class", "").endswith("NumberPicker") or n.get("scrollable") == "true"]
         if wheels:
             print("\n== 可滚动区域 / 滚轮（wheel 会自动识别；识别不对时把位置填到 area）==")
