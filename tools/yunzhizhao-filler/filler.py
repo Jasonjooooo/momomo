@@ -171,6 +171,13 @@ class Device:
         self.timeout = float(settings.get("find_timeout", 5))
         self.max_scrolls = int(settings.get("max_scrolls", 6))
         self.step_delay = float(settings.get("step_delay", 0.4))
+        try:
+            cfg = self.d.jsonrpc.getConfigurator()
+            self.d.jsonrpc.setConfigurator(dict(cfg, waitForIdleTimeout=100))
+            self.idle_off = True
+        except Exception as e:  # noqa: BLE001
+            self.idle_off = False
+            print(f"（提示：无法关闭「等待界面静止」：{str(e)[:80]}）")
         info = self.d.info
         print(f"已连接手机：{info.get('productName', '')}，屏幕 {info.get('displayWidth')}x{info.get('displayHeight')}")
 
@@ -346,7 +353,8 @@ class Device:
         # 3) 整屏 OCR：竖向排成一列、间距均匀的数字就是滚轮
         if spec.get("read", "auto") in ("auto", "ocr") and self._ocr_engine():
             from wheel_picker import columns_from_tokens
-            cols = columns_from_tokens(self._ocr_tokens(self.d.screenshot()), need, w)
+            self._last_tokens = self._ocr_tokens(self.d.screenshot())
+            cols = columns_from_tokens(self._last_tokens, need, w)
             if len(cols) >= need:
                 return cols, "ocr-scan"
 
@@ -435,12 +443,36 @@ class Device:
         crop = img.crop((col.left, col.top, col.right, col.bottom))
         return [Item(t, (tp + b) / 2) for t, l, tp, r, b in self._ocr_tokens(crop, col.left, col.top)]
 
+    def _adb(self, cmd: str) -> str:
+        """直接用 adb shell 执行（不经过 uiautomator，不会等待界面静止）"""
+        r = self.d.shell(cmd)
+        return getattr(r, "output", r if isinstance(r, str) else "") or ""
+
+    def _tap(self, x, y):
+        self._adb(f"input tap {int(x)} {int(y)}")
+
     def _drag_no_fling(self, x, y0, y1):
-        """拖动滚轮：移动到终点后在终点停住一会儿再抬手，抬手速度为 0，滚轮不会惯性甩动。
-        默认用 swipe_points 一次性下发整个手势（快）；drag_mode: touch 时逐个事件下发（慢，备用）"""
+        """拖动滚轮：移动到终点后停住一会儿再抬手，抬手速度为 0，滚轮不会惯性甩动。
+        drag_mode: adb(默认，用 input motionevent，最快) | swipe(uiautomator 一次下发) | touch(逐个事件，最慢)"""
         x, y0, y1 = int(x), int(y0), int(y1)
-        if getattr(self, "wheel_drag_mode", "swipe") == "swipe" and hasattr(self.d, "swipe_points"):
-            hold_pts = max(1, int(getattr(self, "wheel_hold", 0.12) / 0.1))
+        mode = getattr(self, "wheel_drag_mode", "adb")
+        hold = getattr(self, "wheel_hold", 0.2)
+        if mode == "adb" and getattr(self, "_adb_motion_ok", True):
+            ym = (y0 + y1) // 2
+            cmd = (f"input motionevent DOWN {x} {y0}; input motionevent MOVE {x} {ym}; "
+                   f"input motionevent MOVE {x} {y1}; sleep {hold}; input motionevent MOVE {x} {y1}; "
+                   f"input motionevent UP {x} {y1}")
+            out = self._adb(cmd)
+            if any(w in out for w in ("Usage", "usage:", "Error", "Exception", "Unknown")):
+                print("        （此手机不支持 input motionevent，改用 uiautomator 拖动）")
+                self._adb_motion_ok = False
+                self._adb(f"input motionevent UP {x} {y1}")
+                mode = "swipe"
+            else:
+                self._need_settle = True
+                return
+        if mode in ("swipe", "adb") and hasattr(self.d, "swipe_points"):
+            hold_pts = max(1, int(hold / 0.1))
             pts = [(x, y0), (x, (y0 + y1) // 2), (x, y1)] + [(x, y1)] * hold_pts
             self.d.swipe_points(pts, getattr(self, "wheel_seg", 0.1))
         else:
@@ -450,9 +482,34 @@ class Device:
             for k in range(1, steps + 1):
                 t.move(x, y0 + (y1 - y0) * k / steps)
             t.move(x, y1)
-            time.sleep(getattr(self, "wheel_hold", 0.12))
+            time.sleep(hold)
             t.up(x, y1)
         self._need_settle = True
+
+    def _find_node_bounds(self, loc: dict):
+        """在界面 XML 里按 id / text 找控件位置（只 dump 一次，比 UiObject 查找快）"""
+        for n in self._hier_nodes():
+            rid = n.get("resource-id") or ""
+            t = (n.get("text") or "").replace("\xa0", " ").strip()
+            ok = False
+            if "id" in loc:
+                ok = rid == loc["id"] or rid.endswith(":id/" + loc["id"])
+            elif "text" in loc:
+                ok = t == loc["text"]
+            elif "text_contains" in loc:
+                ok = loc["text_contains"] in t
+            if ok:
+                b = parse_bounds(n.get("bounds"))
+                if b[2] > b[0] and b[3] > b[1]:
+                    return b
+        return None
+
+    def _fast_click(self, loc: dict) -> bool:
+        b = self._find_node_bounds(loc)
+        if not b:
+            return False
+        self._tap((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)
+        return True
 
     def wheel(self, spec: dict, value: str):
         """拨滚轮期间临时把 uiautomator 的「等待界面静止」超时设为 0（滚轮动画会让每个操作都等很久）"""
@@ -475,13 +532,18 @@ class Device:
         from wheel_picker import WheelColumnDriver, WheelError, blind_set, split_value, to_int
 
         if spec.get("open"):  # 先点开滚轮
-            self.click(locator_of(spec["open"]))
-            time.sleep(0.6)
+            t0 = time.time()
+            loc = locator_of(spec["open"])
+            if not self._fast_click(loc):
+                self.click(loc)
+            time.sleep(0.8)
+            print(f"      打开滚轮用时 {time.time() - t0:.1f}s")
         self.wheel_settle = float(spec.get("settle", 0.3))
         self.wheel_steps = int(spec.get("drag_steps", 6))
         self.wheel_hold = float(spec.get("hold", 0.2))
         self.wheel_seg = float(spec.get("segment", 0.1))      # swipe_points 每段耗时（秒）
-        self.wheel_drag_mode = spec.get("drag_mode", "swipe")  # swipe(快) | touch(慢，备用)
+        self.wheel_drag_mode = spec.get("drag_mode", "adb")  # adb(最快) | swipe | touch(最慢)
+        self._last_tokens = []
         _, scr_h = self.d.window_size()
         parts = split_value(value, spec.get("pattern"))
         targets = spec.get("wheels") or list(range(len(parts)))
@@ -545,7 +607,8 @@ class Device:
                                     item_height=spec.get("item_height"),
                                     visible_items=int(spec.get("visible_items", 3 if how == "numberpicker" else 5)),
                                     log=print,
-                                    limits=None if spec.get("short_drag") else (scr_h * 0.08, scr_h * 0.96))
+                                    limits=None if spec.get("short_drag") else
+                                    (scr_h * 0.08, scr_h * (1.8 if spec.get("offscreen") else 0.96)))
             try:
                 drv.set(part)
                 print(f"      第 {ci} 列完成：共 {time.time() - t_col:.1f}s ｜ 读数 {stat['reads']} 次 {stat['rt']:.1f}s ｜ "
@@ -562,10 +625,18 @@ class Device:
             time.sleep(self.wheel_settle)
             self._need_settle = False
         if spec.get("confirm", "确定"):
-            btn = self.d(text=spec.get("confirm", "确定"))
-            if btn.exists:
-                btn.click()
-                time.sleep(self.step_delay)
+            t0 = time.time()
+            name = spec.get("confirm", "确定")
+            tok = [t for t in getattr(self, "_last_tokens", []) if t[0].strip() == name]
+            if tok:  # 整屏 OCR 时已经看到「确定」的位置
+                _, l, tp, r, b = tok[0]
+                self._tap((l + r) / 2, (tp + b) / 2)
+            elif not self._fast_click({"text": name}):
+                btn = self.d(text=name)
+                if btn.exists:
+                    btn.click()
+            time.sleep(self.step_delay)
+            print(f"      点「{name}」用时 {time.time() - t0:.1f}s")
 
     def wheel_debug(self, spec: dict, need: int, out: Path):
         """不拖动，只把识别到的列区域和读到的数字画在截图上"""
@@ -866,6 +937,10 @@ def cmd_wheel(args):
         spec["area"] = args.area
     if args.cyclic:
         spec["cyclic"] = args.cyclic
+    if args.offscreen:
+        spec["offscreen"] = True
+    if args.drag_mode:
+        spec["drag_mode"] = args.drag_mode
     dev = Device(args.serial, cfg.get("settings", {}) or {})
     if args.debug:
         from wheel_picker import split_value
@@ -910,6 +985,8 @@ def main(argv=None):
     w.add_argument("--area", type=float, nargs=4, help="滚轮区域 x1 y1 x2 y2（像素或 0~1 比例）")
     w.add_argument("--read", default="auto", choices=["auto", "text", "ocr", "blind"])
     w.add_argument("--confirm", default="", help='拨好后点的按钮，默认不点；如 "确定"')
+    w.add_argument("--offscreen", action="store_true", help="往下拖时允许手指拖出屏幕（一次拖更多格，部分手机不支持）")
+    w.add_argument("--drag-mode", choices=["adb", "swipe", "touch"], help="拖动方式，默认 adb")
     w.add_argument("--cyclic", type=int, nargs="+", help="循环滚轮每列的格数，如时分滚轮：--cyclic 24 60")
     w.add_argument("--debug", action="store_true", help="不拖动，只保存标注了识别区域的截图 wheel_debug.png")
     w.set_defaults(func=cmd_wheel)

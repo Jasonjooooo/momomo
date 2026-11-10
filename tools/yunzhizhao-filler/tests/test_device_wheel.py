@@ -39,6 +39,31 @@ class FakeU2:
     def window_size(self): return W, H
     def __call__(self, **kw): return FakeSel(self, kw)
 
+    def shell(self, cmd):
+        """模拟 adb shell input：motionevent 手势 与 tap 点击"""
+        import re as _re
+        self.shell_cmds = getattr(self, "shell_cmds", 0) + 1
+        down = None
+        for part in cmd.split(";"):
+            m = _re.search(r"input motionevent (DOWN|MOVE|UP) (-?\d+) (-?\d+)", part)
+            if m:
+                act, x, y = m.group(1), int(m.group(2)), int(m.group(3))
+                if act == "DOWN":
+                    down = (x, y)
+                elif act == "UP" and down:
+                    self.on_shell_drag(down[0], down[1], y)
+            m = _re.search(r"input tap (\d+) (\d+)", part)
+            if m:
+                self.on_tap(int(m.group(1)), int(m.group(2)))
+        return SimpleNamespace(output="")
+
+    def on_shell_drag(self, x, y0, y1):
+        self.on_drag(x, y0, y1)
+
+    def on_tap(self, x, y):
+        if 900 <= x <= 1050 and 1450 <= y <= 1530:
+            self.confirmed = True
+
     def col_bounds(self, c):
         return c * W // 3, self.top, (c + 1) * W // 3, self.top + IH * self.vis
 

@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from types import SimpleNamespace  # noqa: E402
+
 from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 
 import filler  # noqa: E402
@@ -69,6 +71,32 @@ class FakeH5:
         c = 0 if x < 630 else 1
         self.pos[c] = (self.pos[c] + round((y0 - y1) / IH)) % (24 if c == 0 else 60)
 
+    def shell(self, cmd):
+        """模拟 adb shell input：motionevent 手势 与 tap 点击"""
+        import re as _re
+        self.shell_cmds = getattr(self, "shell_cmds", 0) + 1
+        down = None
+        for part in cmd.split(";"):
+            m = _re.search(r"input motionevent (DOWN|MOVE|UP) (-?\d+) (-?\d+)", part)
+            if m:
+                act, x, y = m.group(1), int(m.group(2)), int(m.group(3))
+                if act == "DOWN":
+                    down = (x, y)
+                elif act == "UP" and down:
+                    self.on_shell_drag(down[0], down[1], y)
+            m = _re.search(r"input tap (\d+) (\d+)", part)
+            if m:
+                self.on_tap(int(m.group(1)), int(m.group(2)))
+        return SimpleNamespace(output="")
+
+    def on_shell_drag(self, x, y0, y1):
+        self.adb_drags = getattr(self, "adb_drags", 0) + 1
+        self.drag(x, y0, y1)
+
+    def on_tap(self, x, y):
+        if 1700 < y < 1900 and x > 900 or 2580 < y < 2700 and x > 630:  # 「确定」
+            self.confirmed = True
+
     def swipe_points(self, pts, duration):
         """模拟 uiautomator2 的一次性手势：必须在终点停留（末尾有重复点）才不会甩动"""
         assert pts[-1] == pts[-2], "终点没有停留，会产生惯性"
@@ -86,7 +114,7 @@ def main():
     dev.wheel({"confirm": "确定"}, "09:30")
     assert dev.d.pos == [9, 30], dev.d.pos
     assert dev.d.confirmed
-    assert getattr(dev.d, "swipes", 0) > 0, "应使用 swipe_points"
+    assert getattr(dev.d, "adb_drags", 0) > 0 and not getattr(dev.d, "swipes", 0), "应使用 adb motionevent"
     dev.wheel({"confirm": "确定"}, "23:05")
     assert dev.d.pos == [23, 5], dev.d.pos
     dev.wheel({"confirm": "确定", "cyclic": [24, 60]}, "09:30")

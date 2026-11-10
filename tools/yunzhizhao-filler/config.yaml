@@ -53,7 +53,8 @@
 #   initial:  读不到任何内容时，按初始值盲拨，如 "now"（手机当前时间）或 "2026-01-01"
 #   settle:   读数前等待滚轮停稳的秒数，默认 0.3
 #   cyclic:   循环滚轮每列的格数（59 后面接 00 的那种），如 [24, 60]；可走更短/更好拖的方向
-#   drag_steps / hold: 每次拖动的移动步数（默认 6）/ 松手前停顿秒数（默认 0.12）
+#   drag_mode: adb(默认，最快) | swipe | touch       hold: 松手前停顿秒数（默认 0.2）
+#   offscreen: true 往下拖时允许手指拖出屏幕，一次拖更多格（部分手机不支持）
 # =============================================================================
 
 settings:
@@ -76,15 +77,15 @@ record_steps:
   - fill:   {id: "ARRVADD",   column: "降落站"}
   - hide_keyboard: null
   # 时/分滚轮（H5 自绘，靠 OCR 读数，需安装 rapidocr_onnxruntime）
-  - wheel:  {open: {id: "TAKETIME-time"}, column: "出发时刻", confirm: "确定", cyclic: [24, 60]}
-  - wheel:  {open: {id: "ARRVTIME-time"}, column: "到达时刻", confirm: "确定", cyclic: [24, 60]}
+  - wheel:  {open: {id: "TAKETIME-time"}, column: "出发时刻", confirm: "确定"}
+  - wheel:  {open: {id: "ARRVTIME-time"}, column: "到达时刻", confirm: "确定"}
   - select: {id: "JOB",        column: "职位"}       # 选项文字只要包含表格里的值即可，如「机长」
   - select: {id: "YIBIAOTYPE", column: "进近方式"}
   # 以下时间字段若与出发时刻是同一种滚轮即可自动；表格里留空则跳过
-  - wheel:  {open: {id: "JINGLITIME"},     column: "飞行经历时间", confirm: "确定", cyclic: [24, 60]}
-  - wheel:  {open: {id: "YEJIANTIME"},     column: "夜间飞行经历时间", confirm: "确定", cyclic: [24, 60]}
-  - wheel:  {open: {id: "YIBIAOTIME"},     column: "真实仪表时间", confirm: "确定", cyclic: [24, 60]}
-  - wheel:  {open: {id: "ZHUANCHANGTIME"}, column: "转场时间", confirm: "确定", cyclic: [24, 60]}
+  - wheel:  {open: {id: "JINGLITIME"},     column: "飞行经历时间", confirm: "确定"}
+  - wheel:  {open: {id: "YEJIANTIME"},     column: "夜间飞行经历时间", confirm: "确定"}
+  - wheel:  {open: {id: "YIBIAOTIME"},     column: "真实仪表时间", confirm: "确定"}
+  - wheel:  {open: {id: "ZHUANCHANGTIME"}, column: "转场时间", confirm: "确定"}
   - fill:   {id: "ZHUOLUZHOUJIAN", column: "昼间着陆次数"}
   - fill:   {id: "ZHUOLUYEJIAN",   column: "夜间着陆次数"}
   - fill:   {id: "REMARK",         column: "备注"}
