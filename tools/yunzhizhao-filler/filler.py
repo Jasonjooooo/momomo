@@ -344,7 +344,7 @@ class Device:
             return sorted(sc, key=lambda c: c.left), "scrollable"
 
         # 3) 整屏 OCR：竖向排成一列、间距均匀的数字就是滚轮
-        if self._ocr_engine():
+        if spec.get("read", "auto") in ("auto", "ocr") and self._ocr_engine():
             from wheel_picker import columns_from_tokens
             cols = columns_from_tokens(self._ocr_tokens(self.d.screenshot()), need, w)
             if len(cols) >= need:
