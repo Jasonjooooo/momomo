@@ -29,6 +29,7 @@
       <label>最多回复 <input id="maxPosts" type="number" min="1" max="500" /> 条</label>
       <label>每条间隔 <input id="minGap" type="number" min="1" step="0.5" /> – <input id="maxGap" type="number" min="1" step="0.5" /> 秒</label>
     </div>
+    <label>生成失败时，4 秒后自动重试 <input id="maxRetries" type="number" min="0" max="10" /> 次</label>
     <label class="check"><input id="confirmBeforeSend" type="checkbox" /> 发送前等我确认（默认直接发送）</label>
 
     <details>
@@ -37,6 +38,7 @@
       <label class="field">打开面板 <input id="txtOpen" type="text" /></label>
       <label class="field">生成/换一批 <input id="txtRegen" type="text" title="多个用逗号分隔" /></label>
       <label class="field">填入回复框 <input id="txtFill" type="text" /></label>
+      <label class="field">失败提示 <input id="failWords" type="text" title="多个用逗号分隔" /></label>
       <label class="field">生成中提示 <input id="loadingWords" type="text" title="多个用逗号分隔" /></label>
       <label class="field">多条候选时
         <select id="pick"><option value="first">选第一条</option><option value="random">随机选一条</option></select>

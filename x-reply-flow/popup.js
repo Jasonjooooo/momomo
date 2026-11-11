@@ -1,5 +1,5 @@
 const $ = (s) => document.querySelector(s);
-const FIELDS = ["maxPosts", "minGap", "maxGap", "confirmBeforeSend", "txtOpen", "txtRegen", "txtFill", "loadingWords", "pick"];
+const FIELDS = ["maxPosts", "minGap", "maxGap", "confirmBeforeSend", "txtOpen", "txtRegen", "txtFill", "loadingWords", "failWords", "maxRetries", "pick"];
 let tabId = null;
 
 async function send(type) {
@@ -18,10 +18,12 @@ function readCfg() {
     const el = $("#" + k);
     c[k] = el.type === "checkbox" ? el.checked : el.type === "number" ? Number(el.value) : el.value.trim();
   }
+  c.maxRetries = Math.max(0, Math.min(10, Math.round(c.maxRetries)));
+  if (Number.isNaN(c.maxRetries)) c.maxRetries = XRF_DEFAULTS.maxRetries;
   c.maxPosts = Math.max(1, Math.round(c.maxPosts) || XRF_DEFAULTS.maxPosts);
   c.minGap = Math.max(1, c.minGap || XRF_DEFAULTS.minGap);
   c.maxGap = Math.max(c.minGap, c.maxGap || XRF_DEFAULTS.maxGap);
-  for (const k of ["txtOpen", "txtRegen", "txtFill", "loadingWords"]) if (!c[k]) c[k] = XRF_DEFAULTS[k];
+  for (const k of ["txtOpen", "txtRegen", "txtFill", "loadingWords", "failWords"]) if (!c[k]) c[k] = XRF_DEFAULTS[k];
   return c;
 }
 

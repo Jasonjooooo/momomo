@@ -192,29 +192,89 @@
   const isLoading = () =>
     cfg.loadingWords.split(/[,，]/).map((w) => w.trim()).filter(Boolean).some((w) => findAll(w).length);
 
-  async function waitForGenerated(beforeSig) {
+  /** 页面上是否出现了「AI 没返回能用的回复」之类的失败提示 */
+  function hasFailText() {
+    const words = cfg.failWords.split(/[,，]/).map(norm).filter(Boolean);
+    if (!words.length) return false;
+    for (const root of searchRoots()) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+        const s = norm(n.data);
+        if (s && words.some((w) => s.includes(w)) && n.parentElement && isVisible(n.parentElement)) return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 点一次「生成回复 / 换一批」并等待结果。
+   * 返回「填入回复框」按钮；生成失败（出现失败提示 / 长时间没反应）返回 null。
+   */
+  async function generateOnce(regen) {
+    const beforeSig = fillSignature(findAll(cfg.txtFill)) || null;
+    const failBefore = hasFailText();
+    click(regen);
+    const clickedAt = Date.now();
+    let sawLoading = false;
     let lastSig = null;
     let stableSince = 0;
-    return waitFor(
+    await wait(800);
+    const res = await waitFor(
       () => {
+        const btn = findRegen();
+        const loading = isLoading() || (btn && isDisabled(btn));
+        if (loading) sawLoading = true;
         const fills = findAll(cfg.txtFill).filter((b) => !isDisabled(b));
-        if (!fills.length || isLoading()) {
+        const fresh = fills.length && !(beforeSig && fillSignature(fills) === beforeSig);
+
+        if (!loading && !fresh) {
+          // 失败提示：生成过程结束后出现，或者原来没有、点完后新出现
+          const fail = hasFailText();
+          if (fail && (sawLoading || !failBefore || Date.now() - clickedAt > 6000)) return { fail: "AI 没返回能用的回复" };
+          if (Date.now() - clickedAt > 30000) return { fail: "30 秒没有生成结果" };
+        }
+        if (!fresh || loading) {
           lastSig = null;
           return null;
         }
         const sig = fillSignature(fills);
-        if (beforeSig && sig === beforeSig) return null; // 还是旧内容
         if (sig !== lastSig) {
           lastSig = sig;
           stableSince = Date.now();
           return null;
         }
         if (Date.now() - stableSince < 1500) return null; // 内容稳定 1.5 秒才算生成完（兼容逐字输出）
-        return cfg.pick === "random" ? fills[Math.floor(Math.random() * fills.length)] : fills[0];
+        return { fill: cfg.pick === "random" ? fills[Math.floor(Math.random() * fills.length)] : fills[0] };
       },
       90000,
       "AI 回复生成完成"
-    );
+    ).catch((e) => {
+      if (e instanceof Stopped) throw e;
+      return { fail: e.message };
+    });
+    return res;
+  }
+
+  /** 生成失败就等 4 秒再点一次，最多重试 cfg.maxRetries 次 */
+  async function generateWithRetry(regen) {
+    const tries = 1 + Math.max(0, Number(cfg.maxRetries) || 0);
+    let lastFail = "";
+    for (let i = 1; i <= tries; i++) {
+      setStep(i === 1 ? "等待 AI 生成回复…" : `等待 AI 生成回复…（第 ${i} 次尝试）`);
+      const res = await generateOnce(regen);
+      if (res.fill) return res.fill;
+      lastFail = res.fail;
+      if (i < tries) {
+        await log(`↻ ${res.fail}，4 秒后重新点击（第 ${i + 1} 次）`, "warn");
+        setStep(`${res.fail}，4 秒后再点一次…`);
+        await wait(4000);
+        regen = await waitFor(() => {
+          const b = findRegen();
+          return b && !isDisabled(b) && b;
+        }, 30000, "「生成回复 / 换一批」可点击");
+      }
+    }
+    throw new Error(`重试 ${tries} 次仍未生成回复（${lastFail}）`);
   }
 
   async function replyOnCurrentPost() {
@@ -233,13 +293,9 @@
       regen = await waitFor(findRegen, 10000, "找到「生成回复 / 换一批」按钮");
     }
     await waitFor(() => !isDisabled(regen), 30000, "「生成回复 / 换一批」可点击");
-    const beforeSig = fillSignature(findAll(cfg.txtFill)) || null;
-    click(regen);
 
-    // 2. 等生成完成
-    setStep("等待 AI 生成回复…");
-    await wait(800);
-    const fill = await waitForGenerated(beforeSig);
+    // 2. 等生成完成（失败会等 4 秒自动再点）
+    const fill = await generateWithRetry(regen);
     await wait(rand(600, 1200));
 
     // 3. 填入回复框

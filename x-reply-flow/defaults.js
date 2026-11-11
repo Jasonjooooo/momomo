@@ -8,5 +8,7 @@ const XRF_DEFAULTS = {
   txtOpen: "AI回复",      // 面板没打开时，点击这个文字打开「AI 回复助手」
   txtRegen: "生成回复,换一批", // 多个用逗号分隔，哪个出现点哪个
   txtFill: "填入回复框",
+  failWords: "没返回能用的回复,再点一次试试", // 出现这些字 = 生成失败
+  maxRetries: 3,         // 生成失败后自动重试次数（每次等 4 秒）
   loadingWords: "生成中,正在生成,加载中,思考中,Loading",
 };
