@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "TrendRadar 热点雷达",
+  "short_name": "TrendRadar",
+  "version": "1.0.0",
+  "description": "在浏览器里查看多平台热榜，按 TrendRadar 关键词规则筛选，命中新热点时通知。",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "TrendRadar 热点雷达",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "options_page": "options.html",
+  "permissions": ["storage", "alarms", "notifications"],
+  "host_permissions": ["https://newsnow.busiyi.world/*"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"]
+}

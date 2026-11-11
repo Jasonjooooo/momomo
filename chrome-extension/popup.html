@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>TrendRadar</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <img src="icons/icon32.png" alt="" width="20" height="20" />
+    <h1>TrendRadar</h1>
+    <span id="updated" class="muted"></span>
+    <button id="refresh" class="icon-btn" title="立即刷新" aria-label="立即刷新">⟳</button>
+    <button id="settings" class="icon-btn" title="设置" aria-label="设置">⚙</button>
+  </header>
+
+  <div class="toolbar">
+    <input id="search" type="search" placeholder="搜索标题…" autocomplete="off" />
+    <label class="toggle" title="只显示命中关键词的新闻">
+      <input id="onlyMatched" type="checkbox" /> 仅命中
+    </label>
+  </div>
+
+  <nav id="tabs" role="tablist"></nav>
+  <main id="list" aria-live="polite"></main>
+
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

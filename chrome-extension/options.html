@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TrendRadar 设置</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <main>
+    <h1><img src="icons/icon48.png" alt="" width="28" height="28" /> TrendRadar 设置</h1>
+
+    <section>
+      <h2>数据源</h2>
+      <label class="field">
+        <span>热榜 API 地址</span>
+        <input id="apiUrl" type="url" placeholder="https://newsnow.busiyi.world/api/s" />
+        <small>基于 <a href="https://github.com/ourongxing/newsnow" target="_blank" rel="noopener">newsnow</a>，可填写自己部署的实例。使用其它地址时会请求该站点的访问权限。</small>
+      </label>
+      <label class="check"><input id="domainCheck" type="checkbox" /> 域名安全校验（链接必须为 HTTPS 且与平台预期域名一致，不通过则丢弃该平台数据）</label>
+
+      <h3>平台</h3>
+      <table id="platforms">
+        <thead><tr><th>启用</th><th>名称</th><th>ID</th><th>预期域名</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="row">
+        <button id="addPlatform" type="button">＋ 添加平台</button>
+        <button id="resetPlatforms" type="button" class="ghost">恢复默认平台</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>关键词</h2>
+      <p class="hint">
+        与 TrendRadar 的 <code>config/frequency_words.txt</code> 语法完全相同，可直接粘贴或导入。
+        词组之间空一行；普通词任一命中即可、<code>+词</code> 必须同时包含、<code>!词</code> 排除、
+        <code>@10</code> 每组最多显示 10 条、<code>/正则/</code>、<code>[组名]</code> 作为组的第一行、
+        <code>[GLOBAL_FILTER]</code> 区域为全局排除词。留空则显示全部新闻。
+      </p>
+      <textarea id="keywords" rows="16" spellcheck="false"></textarea>
+      <div class="row">
+        <button id="importFile" type="button">从文件导入…</button>
+        <input id="fileInput" type="file" accept=".txt,text/plain" hidden />
+        <span id="parseInfo" class="muted"></span>
+      </div>
+    </section>
+
+    <section>
+      <h2>刷新与通知</h2>
+      <label class="field inline">
+        <span>自动刷新间隔</span>
+        <input id="refreshMinutes" type="number" min="5" max="1440" step="5" /> 分钟（最少 5）
+      </label>
+      <label class="check"><input id="notifyEnabled" type="checkbox" /> 有新的关键词命中时发送桌面通知</label>
+    </section>
+
+    <div class="actions">
+      <button id="save" type="button" class="primary">保存</button>
+      <span id="status" role="status"></span>
+    </div>
+  </main>
+  <script type="module" src="options.js"></script>
+</body>
+</html>
