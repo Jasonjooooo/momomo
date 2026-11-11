@@ -111,6 +111,10 @@
     return [...out];
   }
   const findOne = (text) => findAll(text)[0] || null;
+  /** 「生成回复 / 换一批」按钮：第一次叫「生成回复」，生成过之后叫「换一批」，都认 */
+  const regenWords = () => [...new Set([...cfg.txtRegen.split(/[,，/]/), ...XRF_DEFAULTS.txtRegen.split(",")].map((w) => w.trim()).filter(Boolean))];
+  const findRegen = () => regenWords().map(findOne).find(Boolean) || null;
+  const findAllRegen = () => regenWords().flatMap(findAll);
 
   function click(el) {
     el.scrollIntoView({ block: "center", inline: "nearest" });
@@ -218,17 +222,17 @@
     await wait(rand(1000, 1800));
 
     // 1. 找「换一批」，面板没开就先打开
-    setStep(`点击「${cfg.txtRegen}」`);
-    let regen = findOne(cfg.txtRegen);
+    setStep("点击「生成回复 / 换一批」");
+    let regen = findRegen();
     if (!regen) {
       const opener = findOne(cfg.txtOpen);
       if (opener) {
         click(opener);
         await wait(1000);
       }
-      regen = await waitFor(() => findOne(cfg.txtRegen), 10000, `找到「${cfg.txtRegen}」按钮`);
+      regen = await waitFor(findRegen, 10000, "找到「生成回复 / 换一批」按钮");
     }
-    await waitFor(() => !isDisabled(regen), 30000, `「${cfg.txtRegen}」可点击`);
+    await waitFor(() => !isDisabled(regen), 30000, "「生成回复 / 换一批」可点击");
     const beforeSig = fillSignature(findAll(cfg.txtFill)) || null;
     click(regen);
 
@@ -339,7 +343,7 @@
     return {
       page: statusIdFromPath() ? "帖子页" : isHome() ? "首页" : location.pathname,
       opener: findAll(cfg.txtOpen).length,
-      regen: findAll(cfg.txtRegen).length,
+      regen: findAllRegen().map((b) => norm(b.textContent)).join("、"),
       fill: findAll(cfg.txtFill).length,
       replyBox: !!document.querySelector(SEL.replyBox),
       replyBtn: !!document.querySelector(SEL.replyBtn),

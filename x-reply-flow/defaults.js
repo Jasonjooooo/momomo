@@ -6,7 +6,7 @@ const XRF_DEFAULTS = {
   confirmBeforeSend: false, // 发送前停下来等你确认
   pick: "first",         // 有多条候选回复时：first=第一条，random=随机
   txtOpen: "AI回复",      // 面板没打开时，点击这个文字打开「AI 回复助手」
-  txtRegen: "换一批",
+  txtRegen: "生成回复,换一批", // 多个用逗号分隔，哪个出现点哪个
   txtFill: "填入回复框",
   loadingWords: "生成中,正在生成,加载中,思考中,Loading",
 };

@@ -98,7 +98,7 @@ async function init() {
     const yn = (v, tip = "") => (v ? "✅ 找到" : "❌ 没找到" + tip);
     $("#checkResult").textContent = [
       `当前页面：${r.page}`,
-      `「${$("#txtRegen").value}」：${yn(r.regen, "（面板没打开时属正常，开始后会先点「" + $("#txtOpen").value + "」打开）")}`,
+      `生成按钮：${r.regen ? "✅ 找到「" + r.regen + "」" : "❌ 没找到（面板没打开时属正常，开始后会先点「" + $("#txtOpen").value + "」打开）"}`,
       `「${$("#txtFill").value}」：${r.fill ? `✅ 找到 ${r.fill} 个` : "— 还没出现（生成后才出现，属正常）"}`,
       `打开面板「${$("#txtOpen").value}」：${yn(r.opener)}`,
       r.page === "帖子页" ? `回复框：${yn(r.replyBox)}　黑色回复按钮：${yn(r.replyBtn)}` : "",
