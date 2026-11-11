@@ -229,18 +229,42 @@
 
   // ---------- AI 回复助手 ----------
   /** 候选回复区域的“指纹”：用来判断换一批之后内容有没有变 */
-  function fillSignature(fills) {
-    return fills
-      .map((b) => {
-        let c = b;
-        const own = norm(b.textContent).length;
-        for (let i = 0; i < 5 && c.parentElement; i++) {
-          c = c.parentElement;
-          if (norm(c.textContent).length > own + 4) break;
-        }
-        return norm(c.textContent);
-      })
-      .join("|");
+  /** 读出某个「填入回复框」按钮对应的候选回复文字（优先读卡片里的输入框） */
+  function candidateText(btn) {
+    const fillText = norm(cfg.txtFill);
+    let c = btn;
+    for (let i = 0; i < 6 && c.parentElement; i++) {
+      c = c.parentElement;
+      const fillsInside = [...c.querySelectorAll('button,[role="button"]')].filter((b) => norm(b.textContent) === fillText).length;
+      if (fillsInside > 1) break; // 已经越过这一张卡片
+      const ta = [...c.querySelectorAll('textarea,[contenteditable="true"]')].find((el) => !el.closest(SEL.replyBox) && !el.matches(SEL.replyBox));
+      if (ta) return (ta.value ?? ta.textContent ?? "").trim();
+    }
+    // 没有输入框：取按钮附近的文字
+    c = btn;
+    const own = norm(btn.textContent).length;
+    for (let i = 0; i < 5 && c.parentElement; i++) {
+      c = c.parentElement;
+      if (norm(c.textContent).length > own + 4) break;
+    }
+    return (c.textContent || "").trim();
+  }
+
+  /** 候选回复区域的“指纹”：用来判断换一批之后内容有没有变 */
+  const fillSignature = (fills) => fills.map(candidateText).join("|");
+
+  /** 判断候选回复是不是乱码 / 不通顺；正常返回 null，否则返回原因 */
+  function garbageReason(text) {
+    const t = (text || "").trim();
+    const n = norm(t);
+    if (n.length < 2) return "内容为空";
+    if (n.length > (Number(cfg.maxReplyLen) || 140)) return `太长（${n.length} 字）`;
+    const bad = (cfg.badWords || "").split(/[,，]/).map((w) => w.trim()).filter(Boolean).find((w) => t.toLowerCase().includes(w.toLowerCase()));
+    if (bad) return `包含「${bad}」`;
+    if ((t.match(/[{}\[\]"\\<>`|=_#]/g) || []).length >= 4) return "包含代码符号";
+    if (/\ufffd|Ã|â€|锟斤拷|烫烫/.test(t)) return "乱码字符";
+    if (/(.)\1{9,}/u.test(n)) return "重复字符";
+    return null;
   }
   const isLoading = () =>
     cfg.loadingWords.split(/[,，]/).map((w) => w.trim()).filter(Boolean).some((w) => findAll(w).length);
@@ -297,7 +321,13 @@
           return null;
         }
         if (Date.now() - stableSince < 1500) return null; // 内容稳定 1.5 秒才算生成完（兼容逐字输出）
-        return { fill: cfg.pick === "random" ? fills[Math.floor(Math.random() * fills.length)] : fills[0] };
+        // 检查每条候选：乱码 / 不通顺的不要
+        const cands = fills.map((b, i) => ({ b, i, reason: garbageReason(candidateText(b)) }));
+        const good = cands.filter((c) => !c.reason);
+        if (!good.length) return { fail: `候选回复都不通顺（${cands[0].reason}）`, garbage: true };
+        const chosen = cfg.pick === "random" ? good[Math.floor(Math.random() * good.length)] : good[0];
+        const skipped = cands.filter((c) => c.reason && c.i < chosen.i);
+        return { fill: chosen.b, note: skipped.length ? skipped.map((c) => `第 ${c.i + 1} 条${c.reason}`).join("，") + `，改用第 ${chosen.i + 1} 条` : "" };
       },
       90000,
       "AI 回复生成完成"
@@ -308,26 +338,35 @@
     return res;
   }
 
-  /** 生成失败就等 4 秒再点一次，最多重试 cfg.maxRetries 次 */
+  /**
+   * 生成失败就等 4 秒再点一次：
+   * - AI 没返回 / 超时：最多重试 cfg.maxRetries 次
+   * - 候选回复都是乱码：一直点「换一批」直到通顺，最多 cfg.maxGarbageRetries 次
+   */
   async function generateWithRetry(regen) {
-    const tries = 1 + Math.max(0, Number(cfg.maxRetries) || 0);
-    let lastFail = "";
-    for (let i = 1; i <= tries; i++) {
-      setStep(i === 1 ? "等待 AI 生成回复…" : `等待 AI 生成回复…（第 ${i} 次尝试）`);
+    const maxFail = Math.max(0, Number(cfg.maxRetries) || 0);
+    const maxGarbage = Math.max(0, Number(cfg.maxGarbageRetries) || 0);
+    let fails = 0;
+    let garbage = 0;
+    for (let attempt = 1; ; attempt++) {
+      setStep(attempt === 1 ? "等待 AI 生成回复…" : `等待 AI 生成回复…（第 ${attempt} 次）`);
       const res = await generateOnce(regen);
-      if (res.fill) return res.fill;
-      lastFail = res.fail;
-      if (i < tries) {
-        await log(`↻ ${res.fail}，4 秒后重新点击（第 ${i + 1} 次）`, "warn");
-        setStep(`${res.fail}，4 秒后再点一次…`);
-        await wait(4000);
-        regen = await waitFor(() => {
-          const b = findRegen();
-          return b && !isDisabled(b) && b;
-        }, 30000, "「生成回复 / 换一批」可点击");
+      if (res.fill) {
+        if (res.note) await log(`ℹ️ ${res.note}`);
+        return res.fill;
       }
+      if (res.garbage) garbage++;
+      else fails++;
+      if (fails > maxFail) throw new Error(`重试 ${maxFail} 次仍未生成回复（${res.fail}）`);
+      if (garbage > maxGarbage) throw new Error(`换了 ${maxGarbage} 批仍然没有通顺的回复`);
+      await log(`↻ ${res.fail}，4 秒后${res.garbage ? "换一批" : "重新点击"}`, "warn");
+      setStep(`${res.fail}，4 秒后${res.garbage ? "换一批" : "再点一次"}…`);
+      await wait(4000);
+      regen = await waitFor(() => {
+        const b = findRegen();
+        return b && !isDisabled(b) && b;
+      }, 30000, "「生成回复 / 换一批」可点击");
     }
-    throw new Error(`重试 ${tries} 次仍未生成回复（${lastFail}）`);
   }
 
   async function replyOnCurrentPost() {

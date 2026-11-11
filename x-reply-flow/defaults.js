@@ -11,5 +11,8 @@ const XRF_DEFAULTS = {
   txtFill: "填入回复框",
   failWords: "没返回能用的回复,再点一次试试", // 出现这些字 = 生成失败
   maxRetries: 3,         // 生成失败后自动重试次数（每次等 4 秒）
+  maxGarbageRetries: 10, // 候选回复都是乱码时，最多换几批
+  maxReplyLen: 140,      // 候选回复超过这么多字算不正常
+  badWords: '{",":","style","text",[{,额外注意,检查字数,字数都,ok。,回复1,回复2,JSON', // 出现这些 = 乱码/不通顺
   loadingWords: "生成中,正在生成,加载中,思考中,Loading",
 };

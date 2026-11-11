@@ -1,5 +1,5 @@
 const $ = (s) => document.querySelector(s);
-const FIELDS = ["maxPosts", "minGap", "maxGap", "confirmBeforeSend", "txtOpen", "txtRegen", "txtFill", "loadingWords", "failWords", "maxRetries", "feedTabs", "pick"];
+const FIELDS = ["maxPosts", "minGap", "maxGap", "confirmBeforeSend", "txtOpen", "txtRegen", "txtFill", "loadingWords", "failWords", "maxRetries", "feedTabs", "maxGarbageRetries", "badWords", "maxReplyLen", "pick"];
 let tabId = null;
 
 async function send(type) {
@@ -20,10 +20,12 @@ function readCfg() {
   }
   c.maxRetries = Math.max(0, Math.min(10, Math.round(c.maxRetries)));
   if (Number.isNaN(c.maxRetries)) c.maxRetries = XRF_DEFAULTS.maxRetries;
+  c.maxGarbageRetries = Number.isNaN(Math.round(c.maxGarbageRetries)) ? XRF_DEFAULTS.maxGarbageRetries : Math.max(0, Math.min(50, Math.round(c.maxGarbageRetries)));
+  c.maxReplyLen = Math.max(10, Math.min(280, Math.round(c.maxReplyLen) || XRF_DEFAULTS.maxReplyLen));
   c.maxPosts = Math.max(1, Math.round(c.maxPosts) || XRF_DEFAULTS.maxPosts);
   c.minGap = Math.max(1, c.minGap || XRF_DEFAULTS.minGap);
   c.maxGap = Math.max(c.minGap, c.maxGap || XRF_DEFAULTS.maxGap);
-  for (const k of ["txtOpen", "txtRegen", "txtFill", "loadingWords", "failWords", "feedTabs"]) if (!c[k]) c[k] = XRF_DEFAULTS[k];
+  for (const k of ["txtOpen", "txtRegen", "txtFill", "loadingWords", "failWords", "feedTabs", "badWords"]) if (!c[k]) c[k] = XRF_DEFAULTS[k];
   return c;
 }
 

@@ -31,6 +31,7 @@
     </div>
     <label class="field">首页标签顺序 <input id="feedTabs" type="text" title="用逗号分隔；当前标签没有新帖子时换下一个" /></label>
     <label>生成失败时，4 秒后自动重试 <input id="maxRetries" type="number" min="0" max="10" /> 次</label>
+    <label>回复是乱码时，最多换 <input id="maxGarbageRetries" type="number" min="0" max="50" /> 批</label>
     <label class="check"><input id="confirmBeforeSend" type="checkbox" /> 发送前等我确认（默认直接发送）</label>
 
     <details>
@@ -40,6 +41,8 @@
       <label class="field">生成/换一批 <input id="txtRegen" type="text" title="多个用逗号分隔" /></label>
       <label class="field">填入回复框 <input id="txtFill" type="text" /></label>
       <label class="field">失败提示 <input id="failWords" type="text" title="多个用逗号分隔" /></label>
+      <label class="field">乱码关键词 <input id="badWords" type="text" title="候选回复里出现这些就算乱码，用逗号分隔" /></label>
+      <label class="field">回复最长字数 <input id="maxReplyLen" type="number" min="10" max="280" /></label>
       <label class="field">生成中提示 <input id="loadingWords" type="text" title="多个用逗号分隔" /></label>
       <label class="field">多条候选时
         <select id="pick"><option value="first">选第一条</option><option value="random">随机选一条</option></select>
