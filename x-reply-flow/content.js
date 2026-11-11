@@ -13,10 +13,11 @@
     replyBtn: '[data-testid="tweetButtonInline"]',
     toast: '[data-testid="toast"]',
     homeLink: 'a[data-testid="AppTabBar_Home_Link"]',
+    profileLink: 'a[data-testid="AppTabBar_Profile_Link"]',
   };
 
   let cfg = { ...XRF_DEFAULTS };
-  const run = { active: false, paused: false, stopReq: false, done: 0, failed: 0, step: "空闲" };
+  const run = { active: false, paused: false, stopReq: false, done: 0, failed: 0, step: "空闲", tabIdx: 0 };
 
   class Stopped extends Error {}
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -130,13 +131,31 @@
   // ---------- X 页面辅助 ----------
   const statusIdFromPath = () => location.pathname.match(/^\/[^/]+\/status\/(\d+)/)?.[1] || null;
   const isHome = () => location.pathname === "/home";
+  /** 当前登录账号（从左侧「个人资料」链接读取），用于跳过自己的帖子和回复 */
+  const myHandle = () => (document.querySelector(SEL.profileLink)?.getAttribute("href") || "").replace(/^\//, "").toLowerCase();
+  const authorFromPath = (path) => (path || "").match(/^\/([^/]+)\/status\//)?.[1]?.toLowerCase() || "";
+  const isMine = (path) => !!myHandle() && authorFromPath(path) === myHandle();
+
   function articleInfo(art) {
     const time = art.querySelector('a[href*="/status/"] time');
     const link = time?.closest("a");
-    const id = link?.getAttribute("href")?.match(/\/status\/(\d+)/)?.[1];
-    return id ? { id, link } : null; // 广告没有时间链接，会被自然跳过
+    const href = link?.getAttribute("href") || "";
+    const id = href.match(/\/status\/(\d+)/)?.[1];
+    return id ? { id, link, mine: isMine(href) } : null; // 广告没有时间链接，会被自然跳过
   }
   const replyBoxText = () => norm(document.querySelector(SEL.replyBox)?.textContent);
+
+  // ---------- 首页标签：为你推荐 → 正在关注 → 新闻 … 轮流 ----------
+  const TAB_ALIASES = { 为你推荐: ["ForYou"], 正在关注: ["关注", "Following"] };
+  const feedTabs = () => {
+    const list = (cfg.feedTabs || "").split(/[,，]/).map((w) => w.trim()).filter(Boolean);
+    return list.length ? list : ["为你推荐"];
+  };
+  const currentTabName = () => feedTabs()[run.tabIdx % feedTabs().length];
+  function findTab(name) {
+    const names = [name, ...(TAB_ALIASES[name] || [])].map((n) => norm(n).toLowerCase());
+    return [...document.querySelectorAll('[role="tab"]')].find((el) => names.includes(norm(el.textContent).toLowerCase())) || null;
+  }
 
   async function goHome() {
     if (!(isHome() && document.querySelector(SEL.article))) {
@@ -146,32 +165,66 @@
       await waitFor(() => isHome() && document.querySelector(SEL.article), 20000, "首页加载");
       await wait(1500);
     }
-    // 确保在「为你推荐」标签
-    const forYouTab = () => [...document.querySelectorAll('[role="tab"]')].find((el) => /^(为你推荐|For you)$/i.test(norm(el.textContent)));
-    const tab = forYouTab();
-    if (tab && tab.getAttribute("aria-selected") !== "true") {
-      setStep("切换到「为你推荐」");
+    // 确保在当前要处理的标签（默认「为你推荐」）
+    const name = currentTabName();
+    const tab = findTab(name);
+    if (!tab) {
+      await log(`⚠️ 首页上找不到「${name}」标签，留在当前标签`, "warn");
+      return;
+    }
+    if (tab.getAttribute("aria-selected") !== "true") {
+      setStep(`切换到「${name}」`);
       click(tab);
-      await waitFor(() => forYouTab()?.getAttribute("aria-selected") === "true" && document.querySelector(SEL.article), 15000, "切换到为你推荐");
+      await waitFor(() => findTab(name)?.getAttribute("aria-selected") === "true" && document.querySelector(SEL.article), 15000, `切换到「${name}」`);
       window.scrollTo({ top: 0 });
       await wait(1500);
     }
   }
 
-  /** 首页里找下一条没处理过的帖子，找不到就往下滑 */
-  async function findNextArticle(processed) {
-    for (let tries = 0; tries < 25; tries++) {
+  /** 列表顶部「显示 N 帖子」：有就点一下加载新帖 */
+  async function loadNewPosts() {
+    const btn = [...document.querySelectorAll('[data-testid="primaryColumn"] [role="button"], [data-testid="primaryColumn"] button')].find((b) =>
+      /^(显示\d+(个|条)?帖子|Show\d+posts?)$/i.test(norm(b.textContent))
+    );
+    if (btn && isVisible(btn)) {
+      click(btn);
+      await wait(2000);
+      return true;
+    }
+    return false;
+  }
+
+  /** 在当前标签里找下一条可回复的帖子（跳过自己的、处理过的、广告），找不到就往下滑 */
+  async function scanCurrentTab(processed) {
+    for (let tries = 0; tries < 12; tries++) {
       await checkpoint();
       for (const art of document.querySelectorAll(SEL.article)) {
         if (art.getBoundingClientRect().bottom <= 80) continue; // 已经滑过去的不要
         const info = articleInfo(art);
-        if (info && !processed.has(info.id)) return { art, ...info };
+        if (info && !info.mine && !processed.has(info.id)) return { art, ...info };
       }
-      setStep("向下滑动寻找下一条帖子…");
+      setStep(`「${currentTabName()}」向下滑动寻找下一条帖子…`);
       window.scrollBy({ top: window.innerHeight * 0.8, behavior: "smooth" });
       await wait(rand(1200, 2000));
     }
-    throw new Error("连续下滑也没找到新的帖子");
+    return null;
+  }
+
+  /** 当前标签没有新帖子了，就换下一个标签（为你推荐 → 正在关注 → 新闻 …），全部找过都没有才报错 */
+  async function findNextArticle(processed) {
+    const tabs = feedTabs();
+    for (let n = 0; n <= tabs.length; n++) {
+      const found = await scanCurrentTab(processed);
+      if (found) return found;
+      if (n === tabs.length) break;
+      run.tabIdx = (run.tabIdx + 1) % tabs.length;
+      await log(`「${tabs[(run.tabIdx + tabs.length - 1) % tabs.length]}」没有可回复的新帖子，切换到「${currentTabName()}」`);
+      await goHome();
+      window.scrollTo({ top: 0 });
+      await wait(1000);
+      await loadNewPosts();
+    }
+    throw new Error("所有标签里都没找到新的帖子");
   }
 
   // ---------- AI 回复助手 ----------
@@ -332,8 +385,9 @@
 
     try {
       // 起点：在帖子页且没处理过 → 先处理当前帖子；否则回到首页
+      run.tabIdx = 0;
       const sid = statusIdFromPath();
-      if (!(sid && !processed.has(sid))) await goHome();
+      if (!(sid && !processed.has(sid) && !isMine(location.pathname))) await goHome();
 
       while (run.done < cfg.maxPosts) {
         await checkpoint();
@@ -398,6 +452,8 @@
     const frames = [...document.querySelectorAll("iframe")].filter(isVisible);
     return {
       page: statusIdFromPath() ? "帖子页" : isHome() ? "首页" : location.pathname,
+      me: myHandle(),
+      tabs: feedTabs().map((n) => `${n}${findTab(n) ? "✅" : "❌"}`).join(" "),
       opener: findAll(cfg.txtOpen).length,
       regen: findAllRegen().map((b) => norm(b.textContent)).join("、"),
       fill: findAll(cfg.txtFill).length,

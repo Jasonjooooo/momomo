@@ -1,5 +1,5 @@
 const $ = (s) => document.querySelector(s);
-const FIELDS = ["maxPosts", "minGap", "maxGap", "confirmBeforeSend", "txtOpen", "txtRegen", "txtFill", "loadingWords", "failWords", "maxRetries", "pick"];
+const FIELDS = ["maxPosts", "minGap", "maxGap", "confirmBeforeSend", "txtOpen", "txtRegen", "txtFill", "loadingWords", "failWords", "maxRetries", "feedTabs", "pick"];
 let tabId = null;
 
 async function send(type) {
@@ -23,7 +23,7 @@ function readCfg() {
   c.maxPosts = Math.max(1, Math.round(c.maxPosts) || XRF_DEFAULTS.maxPosts);
   c.minGap = Math.max(1, c.minGap || XRF_DEFAULTS.minGap);
   c.maxGap = Math.max(c.minGap, c.maxGap || XRF_DEFAULTS.maxGap);
-  for (const k of ["txtOpen", "txtRegen", "txtFill", "loadingWords", "failWords"]) if (!c[k]) c[k] = XRF_DEFAULTS[k];
+  for (const k of ["txtOpen", "txtRegen", "txtFill", "loadingWords", "failWords", "feedTabs"]) if (!c[k]) c[k] = XRF_DEFAULTS[k];
   return c;
 }
 
@@ -100,6 +100,8 @@ async function init() {
     const yn = (v, tip = "") => (v ? "✅ 找到" : "❌ 没找到" + tip);
     $("#checkResult").textContent = [
       `当前页面：${r.page}`,
+      `当前账号：${r.me ? "@" + r.me + "（自己的帖子和回复会跳过）" : "❌ 没识别到（可能会回复到自己的帖子）"}`,
+      r.page === "首页" ? `首页标签：${r.tabs}` : "",
       `生成按钮：${r.regen ? "✅ 找到「" + r.regen + "」" : "❌ 没找到（面板没打开时属正常，开始后会先点「" + $("#txtOpen").value + "」打开）"}`,
       `「${$("#txtFill").value}」：${r.fill ? `✅ 找到 ${r.fill} 个` : "— 还没出现（生成后才出现，属正常）"}`,
       `打开面板「${$("#txtOpen").value}」：${yn(r.opener)}`,
