@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "X 自动回复流程",
+  "short_name": "X回复流程",
+  "version": "1.0.0",
+  "description": "在 X 上按顺序打开帖子，调用「AI 回复助手」生成并填入回复，点击回复后进入下一条。",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "X 自动回复流程",
+    "default_popup": "popup.html"
+  },
+  "permissions": ["storage"],
+  "content_scripts": [
+    {
+      "matches": ["https://x.com/*", "https://twitter.com/*"],
+      "js": ["defaults.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

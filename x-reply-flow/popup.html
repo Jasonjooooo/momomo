@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>X 自动回复流程</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <img src="icons/icon32.png" alt="" width="20" height="20" />
+    <h1>X 自动回复流程</h1>
+  </header>
+
+  <div id="notX" class="notice" hidden>请先切换到 x.com 的标签页（刚装好插件的话，刷新一下 X 页面）再打开本面板。</div>
+
+  <section class="status">
+    <div class="status-line"><span id="dot" class="dot"></span><span id="step">空闲</span></div>
+    <div class="muted" id="count"></div>
+  </section>
+
+  <div class="buttons">
+    <button id="start" class="primary">开始</button>
+    <button id="pause">暂停</button>
+    <button id="stop">停止</button>
+  </div>
+
+  <section>
+    <div class="grid">
+      <label>最多回复 <input id="maxPosts" type="number" min="1" max="500" /> 条</label>
+      <label>每条间隔 <input id="minGap" type="number" min="1" step="0.5" /> – <input id="maxGap" type="number" min="1" step="0.5" /> 秒</label>
+    </div>
+    <label class="check"><input id="confirmBeforeSend" type="checkbox" /> 发送前等我确认（默认直接发送）</label>
+
+    <details>
+      <summary>高级：按钮文字</summary>
+      <p class="muted">如果「AI 回复助手」的按钮文字和下面不一样，改成一样的即可。</p>
+      <label class="field">打开面板 <input id="txtOpen" type="text" /></label>
+      <label class="field">换一批 <input id="txtRegen" type="text" /></label>
+      <label class="field">填入回复框 <input id="txtFill" type="text" /></label>
+      <label class="field">生成中提示 <input id="loadingWords" type="text" title="多个用逗号分隔" /></label>
+      <label class="field">多条候选时
+        <select id="pick"><option value="first">选第一条</option><option value="random">随机选一条</option></select>
+      </label>
+    </details>
+  </section>
+
+  <section>
+    <div class="row">
+      <button id="check">检测页面</button>
+      <button id="clearProcessed" class="ghost" title="清空后，已回复过的帖子会被重新处理">清空已处理记录 <span id="processedCount"></span></button>
+    </div>
+    <div id="checkResult" class="muted"></div>
+  </section>
+
+  <section class="log-wrap">
+    <div class="row"><strong>运行日志</strong><button id="clearLog" class="ghost small">清空</button></div>
+    <ol id="log"></ol>
+  </section>
+
+  <script src="defaults.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
