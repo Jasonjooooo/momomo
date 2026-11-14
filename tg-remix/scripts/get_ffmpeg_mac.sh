@@ -14,7 +14,7 @@ check() {
   ./ffmpeg -hide_banner -version | head -1 || return 1
   local filters; filters=$(./ffmpeg -hide_banner -filters 2>/dev/null)
   for f in $NEED_FILTERS; do
-    echo "$filters" | grep -qE "^ \S+ $f " || { echo "缺少滤镜 $f"; return 1; }
+    echo "$filters" | grep -qE "^ \S+ $f " || { echo "缺少滤镜 ${f}"; return 1; }
   done
   ./ffmpeg -hide_banner -encoders 2>/dev/null | grep -q libx264 || { echo "缺少 libx264"; return 1; }
   ./ffmpeg -hide_banner -encoders 2>/dev/null | grep -q aac || { echo "缺少 aac"; return 1; }
@@ -41,11 +41,11 @@ from_brew() {
 for source in from_riedl from_brew; do
   clean
   if $source && check; then
-    echo "✅ ffmpeg 准备好了（$source）"
+    echo "✅ ffmpeg 准备好了（${source}）"
     ls -la
     exit 0
   fi
-  echo "⚠️ $source 不可用，换下一个方案"
+  echo "⚠️ ${source} 不可用，换下一个方案"
 done
 echo "❌ 拿不到可用的 ffmpeg"
 exit 1
