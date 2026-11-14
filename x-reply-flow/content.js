@@ -22,27 +22,65 @@
   class Stopped extends Error {}
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const rand = (a, b) => a + Math.random() * (b - a);
-  const norm = (s) => (s || "").replace(/[\s​-‍﻿]+/g, "");
+  const norm = (s) => (s || "").replace(/[\s\u200b-\u200d\ufeff]+/g, "");
+
+  // ---------- 插件更新/重新加载后，旧页面里的脚本会和插件断开 ----------
+  let dead = false;
+  const alive = () => {
+    try {
+      return !dead && !!chrome.runtime?.id && !!chrome.storage?.local;
+    } catch {
+      return false;
+    }
+  };
+  function markDead() {
+    if (dead) return;
+    dead = true;
+    run.stopReq = true;
+    run.paused = false;
+    run.step = "插件已更新或重新加载，请刷新 X 页面后再开始";
+    overlay.update();
+  }
+  /** 安全地调用 chrome.storage：断开时不报错，直接停止任务 */
+  async function store(fn) {
+    if (!alive()) {
+      markDead();
+      return {};
+    }
+    try {
+      return (await fn(chrome.storage.local)) || {};
+    } catch (e) {
+      if (!alive() || /context invalidated/i.test(String(e?.message))) {
+        markDead();
+        return {};
+      }
+      throw e;
+    }
+  }
 
   // ---------- 状态与日志（弹窗通过 storage 实时显示） ----------
   function publish() {
-    chrome.storage.local.set({
-      xrfStatus: { active: run.active, paused: run.paused, step: run.step, done: run.done, failed: run.failed, max: cfg.maxPosts, at: Date.now() },
-    });
+    store((st) =>
+      st.set({
+        xrfStatus: { active: run.active, paused: run.paused, step: run.step, done: run.done, failed: run.failed, max: cfg.maxPosts, at: Date.now() },
+      })
+    ).catch(() => {});
     overlay.update();
   }
   function setStep(s) {
+    if (dead) return;
     run.step = s;
     publish();
   }
   async function log(text, level = "info") {
-    const { xrfLog = [] } = await chrome.storage.local.get("xrfLog");
+    const { xrfLog = [] } = await store((st) => st.get("xrfLog"));
     xrfLog.push({ t: Date.now(), text, level });
-    await chrome.storage.local.set({ xrfLog: xrfLog.slice(-200) });
+    await store((st) => st.set({ xrfLog: xrfLog.slice(-200) }));
   }
 
   // ---------- 等待工具（支持暂停/停止） ----------
   async function checkpoint() {
+    if (!alive()) markDead();
     if (run.stopReq) throw new Stopped();
     while (run.paused) {
       await sleep(300);
@@ -414,10 +452,11 @@
   // ---------- 主循环 ----------
   async function start() {
     if (run.active) return;
-    const { xrfCfg = {}, xrfProcessed = [] } = await chrome.storage.local.get(["xrfCfg", "xrfProcessed"]);
+    if (!alive()) return markDead();
+    const { xrfCfg = {}, xrfProcessed = [] } = await store((st) => st.get(["xrfCfg", "xrfProcessed"]));
     cfg = { ...XRF_DEFAULTS, ...xrfCfg };
     const processed = new Set(xrfProcessed);
-    const saveProcessed = () => chrome.storage.local.set({ xrfProcessed: [...processed].slice(-5000) });
+    const saveProcessed = () => store((st) => st.set({ xrfProcessed: [...processed].slice(-5000) })).catch(() => {});
     Object.assign(run, { active: true, paused: false, stopReq: false, done: 0, failed: 0 });
     overlay.show();
     await log(`开始：最多 ${cfg.maxPosts} 条，间隔 ${cfg.minGap}–${cfg.maxGap} 秒`);
@@ -472,7 +511,9 @@
       setStep(`完成：成功 ${run.done} 条，跳过 ${run.failed} 条`);
       await log(`🎉 完成：成功 ${run.done} 条，跳过 ${run.failed} 条`, "ok");
     } catch (e) {
-      if (e instanceof Stopped) {
+      if (e instanceof Stopped && dead) {
+        // 插件已断开：浮窗里已经提示刷新页面
+      } else if (e instanceof Stopped) {
         setStep(`已停止：成功 ${run.done} 条`);
         await log(`⏹ 已停止：成功 ${run.done} 条`);
       } else {
@@ -551,7 +592,8 @@
         root.getElementById("cnt").textContent = `${run.done}/${cfg.maxPosts}`;
         root.getElementById("step").textContent = (run.paused ? "⏸ 已暂停 · " : "") + run.step;
         root.getElementById("pause").textContent = run.paused ? "继续" : "暂停";
-        root.getElementById("ctl").hidden = !run.active;
+        root.getElementById("ctl").hidden = !run.active || dead;
+        if (dead) root.getElementById("step").textContent = "⚠️ " + run.step;
       },
       ask() {
         ensure();
@@ -590,7 +632,7 @@
         reply({ ok: true });
         break;
       case "check":
-        chrome.storage.local.get("xrfCfg").then(({ xrfCfg = {} }) => {
+        store((st) => st.get("xrfCfg")).then(({ xrfCfg = {} }) => {
           cfg = run.active ? cfg : { ...XRF_DEFAULTS, ...xrfCfg };
           reply({ ok: true, result: check(), running: run.active });
         });
@@ -603,7 +645,7 @@
   });
 
   // 页面刷新后上一次的运行状态作废
-  chrome.storage.local.get("xrfStatus").then(({ xrfStatus }) => {
-    if (xrfStatus?.active) chrome.storage.local.set({ xrfStatus: { ...xrfStatus, active: false, paused: false, step: "页面已刷新，任务中断" } });
+  store((st) => st.get("xrfStatus")).then(({ xrfStatus }) => {
+    if (xrfStatus?.active) store((st) => st.set({ xrfStatus: { ...xrfStatus, active: false, paused: false, step: "页面已刷新，任务中断" } }));
   });
 })();
