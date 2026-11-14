@@ -1,0 +1,104 @@
+# 自动打包「TG二创」Mac 应用（M 芯片），打好后发布到 Releases
+name: 打包 TG二创 Mac 应用
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/jolly-pascal-b5so13, main, master]
+    paths:
+      - "tg-remix/**"
+      - ".github/workflows/tg-remix-mac.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tg-remix-mac-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-14   # GitHub 的 M 芯片 Mac
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: tg-remix
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安装依赖
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pywebview pyinstaller pillow
+
+      - name: 获取 ffmpeg
+        run: bash scripts/get_ffmpeg_mac.sh "$PWD/build/ffbin"
+
+      - name: 打包应用
+        run: |
+          pyinstaller --noconfirm --windowed --name TGRemix \
+            --paths . --paths app \
+            --add-data "app/ui:ui" \
+            --collect-submodules telethon \
+            --collect-submodules python_socks \
+            --hidden-import api \
+            --osx-bundle-identifier com.tgremix.app \
+            --icon app/icon.png \
+            app/main.py
+
+          APP=dist/TGRemix.app
+          # 放入 ffmpeg，并逐个签名（M 芯片要求可执行文件至少有临时签名）
+          mkdir -p "$APP/Contents/Resources/ffbin"
+          cp -R build/ffbin/. "$APP/Contents/Resources/ffbin/"
+          find "$APP/Contents/Resources/ffbin" -type f \( -name "ff*" -o -name "*.dylib" \) -exec codesign --force --sign - {} \;
+
+          PL="$APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName TG二创" "$PL" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string TG二创" "$PL"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.0.0" "$PL" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.0.0" "$PL"
+          /usr/libexec/PlistBuddy -c "Add :NSHighResolutionCapable bool true" "$PL" 2>/dev/null || true
+
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --verbose=2 "$APP"
+          du -sh "$APP"
+
+      - name: 自检（用打包好的应用实际处理一条视频）
+        run: dist/TGRemix.app/Contents/MacOS/TGRemix --selftest
+
+      - name: 压缩
+        run: |
+          mkdir -p release
+          cp -R dist/TGRemix.app "release/TG二创.app"
+          cd release && ditto -c -k --sequesterRsrc --keepParent "TG二创.app" ../TGRemix-mac-arm64.zip
+          ls -la ../TGRemix-mac-arm64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TGRemix-mac-arm64
+          path: tg-remix/TGRemix-mac-arm64.zip
+          retention-days: 30
+
+      - name: 发布到 Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG=tg-remix-latest
+          gh release delete "$TAG" --yes --cleanup-tag 2>/dev/null || true
+          cat > notes.md <<'NOTES'
+          ## TG二创 · Mac 版（M 芯片）
+
+          **安装**
+          1. 下载下面的 `TGRemix-mac-arm64.zip`，双击解压，得到「TG二创」
+          2. 把「TG二创」拖进「应用程序」文件夹
+          3. 第一次打开：右键点它 →「打开」→ 再点「打开」
+             - 如果提示「已损坏」或没有「打开」按钮：打开「系统设置 → 隐私与安全性」，往下找到「仍要打开」
+             - 还不行的话，在「终端」运行：`xattr -cr "/Applications/TG二创.app"`，再双击打开
+
+          数据（配置、登录、下载、成品）都保存在你的个人文件夹下的「TG二创」文件夹里。
+          NOTES
+          sed -i '' 's/^          //' notes.md
+          gh release create "$TAG" TGRemix-mac-arm64.zip \
+            --title "TG二创 Mac 版（最新）" --notes-file notes.md --target "${{ github.sha }}"
