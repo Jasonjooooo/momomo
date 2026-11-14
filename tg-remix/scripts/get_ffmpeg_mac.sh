@@ -6,7 +6,7 @@ OUT="$1"
 mkdir -p "$OUT"
 cd "$OUT" || exit 1
 
-NEED_FILTERS="drawtext gblur boxblur colorbalance curves eq hue unsharp vignette overlay atempo amix anullsrc concat pad crop scale"
+NEED_FILTERS="drawtext gblur boxblur colorbalance curves eq hue unsharp vignette overlay atempo amix anullsrc concat pad crop scale xfade acrossfade select showinfo sidechaincompress asplit adelay apad fade colorchannelmixer"
 
 check() {
   [ -x ./ffmpeg ] && [ -x ./ffprobe ] || { echo "缺少可执行文件"; return 1; }

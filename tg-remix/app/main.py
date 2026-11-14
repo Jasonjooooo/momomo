@@ -55,20 +55,38 @@ def selftest() -> int:
     font = find_font("")
     print("中文字体:", font)
 
+    import edge_tts  # noqa: F401  （AI 配音依赖要打包进来）
+
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
         dl = root / "downloads" / "selftest"
         dl.mkdir(parents=True)
         src = dl / "1.mp4"
-        subprocess.run([ffmpeg, "-loglevel", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=30",
-                        "-f", "lavfi", "-i", "sine=frequency=440", "-t", "6", "-c:v", "libx264", "-c:a", "aac",
-                        str(src)], check=True)
-        (dl / "1.json").write_text('{"channel":"selftest","id":1,"text":"自检标题 测试视频！#tag","link":""}',
-                                   encoding="utf-8")
+        # 4 个镜头：测试图 3s / 彩条 3s / 0.3s 白闪 / 和第一个相同的测试图 2s
+        subprocess.run([ffmpeg, "-loglevel", "error",
+                        "-f", "lavfi", "-i", "testsrc=s=1280x720:r=30:d=3",
+                        "-f", "lavfi", "-i", "smptebars=s=1280x720:r=30:d=3",
+                        "-f", "lavfi", "-i", "color=white:s=1280x720:r=30:d=0.3",
+                        "-f", "lavfi", "-i", "testsrc=s=1280x720:r=30:d=2",
+                        "-f", "lavfi", "-i", "sine=frequency=440:d=8.3",
+                        "-filter_complex", "[0:v][1:v][2:v][3:v]concat=n=4:v=1:a=0,format=yuv420p[v]",
+                        "-map", "[v]", "-map", "4:a", "-c:v", "libx264", "-c:a", "aac", "-shortest", str(src)],
+                       check=True)
+        sticker = root / "sticker.png"
+        subprocess.run([ffmpeg, "-loglevel", "error", "-f", "lavfi", "-i", "color=c=red:s=120x120,format=rgba",
+                        "-frames:v", "1", str(sticker)], check=True)
+        (dl / "1.json").write_text(
+            '{"channel":"selftest","id":1,"text":"自检标题 测试视频！#tag","link":"",'
+            '"_commentary":"这是一段自检用的解说词，用来确认配音和字幕都正常。"}', encoding="utf-8")
         cfg = _merge(DEFAULTS, {"process": {
-            "trim_head": 1, "blur_boxes": [{"x": 0.73, "y": 0.02, "w": 0.25, "h": 0.1}], "zoom": 1.05,
+            "blur_boxes": [{"x": 0.73, "y": 0.02, "w": 0.25, "h": 0.1}], "zoom": 1.05,
             "filter": "cinematic", "vignette": True,
             "watermark": {"text": "@自检水印"},
+            "edit": {"enabled": True, "transition": "fade", "transition_duration": 0.5},
+            "stickers": [{"image": str(sticker), "position": "top_right", "width": 0.15, "animation": "float"}],
+            "texts": [{"text": "关注我", "position": "bottom", "animation": "marquee"},
+                      {"text": "逐字", "position": "center", "animation": "typewriter", "start": 1, "duration": 2}],
+            "voiceover": {"enabled": True, "api_key": "unused"},
         }})
         cfg["_root"] = root
         ok = process_all(cfg, State(root / "state.json"))
@@ -78,9 +96,13 @@ def selftest() -> int:
             return 1
         info = probe(outs[0])
         print(f"成品: {info.width}x{info.height} {info.duration:.2f}s audio={info.has_audio}")
-        if (info.width, info.height) != (1080, 1920) or not info.has_audio:
-            print("❌ 成品规格不对")
+        # 3 + 3 + （去掉白闪和重复镜头）- 0.5 转场 = 5.5 秒，再除以默认变速 1.1
+        expect = 5.5 / 1.1
+        if (info.width, info.height) != (1080, 1920) or not info.has_audio or abs(info.duration - expect) > 0.3:
+            print(f"❌ 成品规格不对（期望约 {expect:.2f} 秒）")
             return 1
+        manifest = next((root / "output").rglob("清单.csv")).read_text(encoding="utf-8-sig")
+        print("AI 配音:", "✅ 成功" if "自检用的解说词" in manifest else "⚠️ 没有生成（可能连不上微软语音服务）")
     print("✅ 自检通过")
     return 0
 

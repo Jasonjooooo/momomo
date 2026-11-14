@@ -145,6 +145,7 @@ td.del button:hover { background: var(--input); color: var(--err); }
 
   <div class="card">
     <h3>试效果 <span class="hint">选一个视频，只处理前 15 秒，完成后自动播放，不影响正式记录</span></h3>
+    <div class="row"><label>模拟帖子文字</label><input type="text" id="testText" placeholder="可选：填一句话，用来试「自动标题」和「AI 解说」的效果"></div>
     <div class="row">
       <button class="btn pri" id="btnTest">选择视频并试效果…</button>
     </div>
@@ -245,6 +246,63 @@ td.del button:hover { background: var(--input); color: var(--err); }
         <option value="bottom_right">右下</option><option value="bottom_left">左下</option>
         <option value="top_right">右上</option><option value="top_left">左上</option>
       </select></div>
+  </div>
+
+  <div class="card">
+    <h3>镜头剪辑 <label class="check" style="margin-left:auto"><input type="checkbox" data-path="process.edit.enabled">开启</label></h3>
+    <p class="help" style="margin-top:-6px">自动识别镜头切换，去掉闪一下的镜头和重复镜头，镜头之间加转场。</p>
+    <div class="row"><label>识别灵敏度</label><input type="range" min="0.3" max="0.95" step="0.05" data-path="process.edit.sensitivity"><span class="val" data-show="process.edit.sensitivity" data-pctshow></span><span class="help">越高切得越细</span></div>
+    <div class="row"><label>去掉短镜头</label>短于 <input type="number" min="0" max="10" step="0.1" data-path="process.edit.min_shot"> 秒的镜头
+      <label class="check" style="margin-left:16px"><input type="checkbox" data-path="process.edit.drop_duplicates">去掉重复镜头</label></div>
+    <div class="row"><label>最长保留</label><input type="number" min="0" max="600" step="1" data-path="process.edit.max_duration"> 秒 <span class="help">0 = 不限制；超出部分按顺序截掉</span></div>
+    <div class="row"><label>转场</label>
+      <select data-path="process.edit.transition">
+        <option value="none">无（直接切）</option><option value="fade">淡入淡出</option><option value="dissolve">溶解</option>
+        <option value="slide">左滑</option><option value="slideup">上滑</option><option value="wipe">擦除</option>
+        <option value="circle">圆形展开</option><option value="zoom">放大</option><option value="smooth">平滑推移</option>
+        <option value="random">每次随机</option>
+      </select>
+      时长 <input type="range" min="0.2" max="1.2" step="0.1" data-path="process.edit.transition_duration" style="max-width:160px"><span class="val" data-show="process.edit.transition_duration" data-suffix="秒"></span></div>
+  </div>
+
+  <div class="card">
+    <h3>贴纸 <span class="hint">PNG（透明背景）或 GIF 动图</span></h3>
+    <div id="stList"></div>
+    <div class="row"><button class="btn" id="btnAddSt">＋ 添加贴纸</button></div>
+  </div>
+
+  <div class="card">
+    <h3>动态文字</h3>
+    <div id="txList"></div>
+    <div class="row"><button class="btn" id="btnAddTx">＋ 添加文字</button></div>
+  </div>
+
+  <div class="card">
+    <h3>AI 解说配音 <label class="check" style="margin-left:auto"><input type="checkbox" data-path="process.voiceover.enabled">开启</label></h3>
+    <p class="help" style="margin-top:-6px">根据 TG 帖子文字，AI 写一段解说词并配音；说话时自动压低原声，可显示解说字幕。没有帖子文字的视频会跳过解说。</p>
+    <div class="row"><label>接口地址</label><input type="text" data-path="process.voiceover.api_base" placeholder="https://api.deepseek.com"></div>
+    <div class="row"><label>API Key</label><input type="password" data-path="process.voiceover.api_key" placeholder="sk-…">
+      <span class="help"><a data-url="https://platform.deepseek.com/api_keys">去 DeepSeek 申请</a></span></div>
+    <div class="row"><label>模型</label><input type="text" data-path="process.voiceover.model" style="max-width:200px"></div>
+    <div class="row"><label>风格</label>
+      <select data-path="process.voiceover.style">
+        <option value="humor">幽默调侃</option><option value="sharp">犀利点评</option><option value="warm">温暖走心</option>
+        <option value="neutral">客观播报</option><option value="story">讲故事</option>
+      </select></div>
+    <div class="row"><label>补充要求</label><input type="text" data-path="process.voiceover.extra" placeholder="可选，例：多用网络流行语 / 结尾提醒关注"></div>
+    <div class="row"><label>声音</label>
+      <select data-path="process.voiceover.voice">
+        <option value="zh-CN-YunxiNeural">云希（男，年轻活泼）</option><option value="zh-CN-YunjianNeural">云健（男，激情解说）</option>
+        <option value="zh-CN-YunyangNeural">云扬（男，新闻播报）</option><option value="zh-CN-XiaoxiaoNeural">晓晓（女，温柔）</option>
+        <option value="zh-CN-XiaoyiNeural">晓伊（女，活泼）</option><option value="zh-CN-liaoning-XiaobeiNeural">晓北（女，东北话）</option>
+        <option value="zh-TW-HsiaoChenNeural">曉臻（女，台湾腔）</option>
+      </select></div>
+    <div class="row"><label>语速</label><input type="range" min="0.8" max="1.5" step="0.05" data-path="process.voiceover.rate"><span class="val" data-show="process.voiceover.rate" data-suffix="×"></span></div>
+    <div class="row"><label>解说音量</label><input type="range" min="0.5" max="2" step="0.1" data-path="process.voiceover.volume"><span class="val" data-show="process.voiceover.volume" data-pctshow></span></div>
+    <div class="row"><label>说话时原声</label><input type="range" min="0.05" max="1" step="0.05" data-path="process.voiceover.duck_volume"><span class="val" data-show="process.voiceover.duck_volume" data-pctshow></span><span class="help">越低原声被压得越小</span></div>
+    <div class="row"><span class="lbl">字幕</span><label class="check"><input type="checkbox" data-path="process.voiceover.subtitles">显示解说字幕</label></div>
+    <div class="row"><button class="btn" id="btnTestAi">测试：写一句解说并播放配音</button></div>
+    <div class="msg" id="aiMsg"></div>
   </div>
 
   <div class="card">
@@ -565,10 +623,100 @@ $("#btnClearLog").addEventListener("click", async () => { await api.clear_log();
 $("#btnTest").addEventListener("click", async () => {
   const p = await api.pick("video");
   if (!p) return;
-  const r = await api.test(p);
+  const r = await api.test(p, $("#testText").value.trim());
   if (!r.ok) toast(r.error);
   poll();
 });
+
+// ---------- 贴纸 / 动态文字 列表 ----------
+const POS9 = [["top_left","左上"],["top","上中"],["top_right","右上"],["left","左中"],["center","正中"],["right","右中"],["bottom_left","左下"],["bottom","下中"],["bottom_right","右下"]];
+function mkSelect(opts, val, on) {
+  const s = document.createElement("select");
+  for (const [v, t] of opts) { const o = document.createElement("option"); o.value = v; o.textContent = t; s.append(o); }
+  s.value = val; s.addEventListener("change", () => { on(s.value); save(); }); return s;
+}
+function mkNum(val, attrs, on) {
+  const i = document.createElement("input"); i.type = "number"; i.value = val ?? 0;
+  Object.assign(i, attrs); i.style.width = "70px";
+  i.addEventListener("change", () => { on(Number(i.value) || 0); save(); }); return i;
+}
+function mkRange(val, min, max, step, show, on) {
+  const wrap = document.createElement("span"); wrap.style.display = "inline-flex"; wrap.style.alignItems = "center"; wrap.style.gap = "6px";
+  const r = document.createElement("input"); r.type = "range"; r.min = min; r.max = max; r.step = step; r.value = val; r.style.width = "110px";
+  const v = document.createElement("span"); v.className = "val"; v.textContent = show(val);
+  r.addEventListener("input", () => { v.textContent = show(Number(r.value)); on(Number(r.value)); save(); });
+  wrap.append(r, v); return wrap;
+}
+function lbl(t) { const s = document.createElement("span"); s.className = "help"; s.textContent = t; s.style.margin = "0"; return s; }
+function delBtn(list, i, rerender) {
+  const b = document.createElement("button"); b.className = "btn danger"; b.textContent = "删除";
+  b.addEventListener("click", () => { list.splice(i, 1); rerender(); save(); }); return b;
+}
+function itemBox() { const d = document.createElement("div"); d.style.cssText = "border:1px solid var(--border);border-radius:10px;padding:8px 12px;margin-bottom:10px"; return d; }
+function row(...kids) { const d = document.createElement("div"); d.className = "row"; d.style.margin = "6px 0"; d.append(...kids); return d; }
+
+function renderStickers() {
+  const list = (cfg.process.stickers ||= []);
+  const box = $("#stList"); box.replaceChildren();
+  if (!list.length) box.append(Object.assign(document.createElement("div"), { className: "empty", textContent: "还没有贴纸" }));
+  list.forEach((st, i) => {
+    const it = itemBox();
+    const path = document.createElement("span"); path.className = "path"; path.textContent = st.image || "未选择图片"; path.title = st.image || "";
+    const pick = document.createElement("button"); pick.className = "btn"; pick.textContent = "选择图片…";
+    pick.addEventListener("click", async () => { const p = await api.pick("sticker"); if (p) { st.image = p; renderStickers(); save(); } });
+    const f = document.createElement("div"); f.className = "file"; f.append(path, pick);
+    it.append(
+      row(f, delBtn(list, i, renderStickers)),
+      row(lbl("位置"), mkSelect(POS9, st.position || "top_right", (v) => (st.position = v)),
+          lbl("动画"), mkSelect([["none","不动"],["fade","淡入淡出"],["float","上下浮动"]], st.animation || "fade", (v) => (st.animation = v)),
+          lbl("大小"), mkRange(st.width ?? 0.2, 0.05, 0.6, 0.01, (v) => Math.round(v * 100) + "%", (v) => (st.width = v)),
+          lbl("不透明度"), mkRange(st.opacity ?? 1, 0.1, 1, 0.05, (v) => Math.round(v * 100) + "%", (v) => (st.opacity = v))),
+      row(lbl("从第"), mkNum(st.start ?? 0, { min: 0, step: 0.5 }, (v) => (st.start = v)), lbl("秒开始，显示"),
+          mkNum(st.duration ?? 0, { min: 0, step: 0.5 }, (v) => (st.duration = v)), lbl("秒（0 = 一直显示到结束）")),
+    );
+    box.append(it);
+  });
+}
+$("#btnAddSt").addEventListener("click", () => {
+  (cfg.process.stickers ||= []).push({ image: "", position: "top_right", width: 0.2, opacity: 1, start: 0, duration: 0, animation: "fade" });
+  renderStickers(); save();
+});
+
+function renderTexts() {
+  const list = (cfg.process.texts ||= []);
+  const box = $("#txList"); box.replaceChildren();
+  if (!list.length) box.append(Object.assign(document.createElement("div"), { className: "empty", textContent: "还没有动态文字" }));
+  list.forEach((tx, i) => {
+    const it = itemBox();
+    const t = document.createElement("input"); t.type = "text"; t.value = tx.text || ""; t.placeholder = "要显示的文字，例：关注我看更多精彩";
+    t.addEventListener("change", () => { tx.text = t.value; save(); });
+    const box2 = document.createElement("label"); box2.className = "check";
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = tx.box !== false;
+    cb.addEventListener("change", () => { tx.box = cb.checked; save(); }); box2.append(cb, "黑底");
+    it.append(
+      row(t, delBtn(list, i, renderTexts)),
+      row(lbl("位置"), mkSelect([["top","顶部"],["center","中间"],["bottom","底部"]], tx.position || "bottom", (v) => (tx.position = v)),
+          lbl("动画"), mkSelect([["fade","淡入淡出"],["slide","从左滑入"],["marquee","跑马灯"],["typewriter","逐字出现"],["none","不动"]], tx.animation || "fade", (v) => (tx.animation = v)),
+          lbl("颜色"), mkSelect([["white","白"],["#FFE45C","黄"],["#FF4D6D","红"],["#4DD2FF","蓝"],["#5CFF8A","绿"]], tx.color || "white", (v) => (tx.color = v)),
+          lbl("字号"), mkNum(tx.font_size ?? 52, { min: 20, max: 120 }, (v) => (tx.font_size = v)), box2),
+      row(lbl("从第"), mkNum(tx.start ?? 0, { min: 0, step: 0.5 }, (v) => (tx.start = v)), lbl("秒开始，显示"),
+          mkNum(tx.duration ?? 0, { min: 0, step: 0.5 }, (v) => (tx.duration = v)), lbl("秒（0 = 一直显示到结束）")),
+    );
+    box.append(it);
+  });
+}
+$("#btnAddTx").addEventListener("click", () => {
+  (cfg.process.texts ||= []).push({ text: "", position: "bottom", animation: "fade", color: "white", font_size: 52, start: 0, duration: 0, box: true });
+  renderTexts(); save();
+});
+
+$("#btnTestAi").addEventListener("click", (e) => busy(e.target, async () => {
+  await save(true);
+  const m = $("#aiMsg"); m.className = "msg"; m.textContent = "AI 正在写解说词并配音…";
+  const r = await api.test_ai($("#testText") ? $("#testText").value : "");
+  if (!r.ok) { m.className = "msg err"; m.textContent = r.error; return; }
+  m.className = "msg ok"; m.textContent = "解说：" + r.text + "（配音已自动播放）";
+}));
 
 let logNext = 0;
 let polling = false;
@@ -607,7 +755,7 @@ async function init() {
   cfg.channels ||= [];
   $("#rootLink").textContent = info.root;
   $("#ver").textContent = "版本 " + info.version;
-  bindForm(); renderChannels(); fillAccount(); renderTips();
+  bindForm(); renderChannels(); renderStickers(); renderTexts(); fillAccount(); renderTips();
   setInterval(poll, 700); poll();
   checkLogin();
 }

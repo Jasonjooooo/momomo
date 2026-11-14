@@ -45,6 +45,7 @@ jobs:
             --add-data "app/ui:ui" \
             --collect-submodules telethon \
             --collect-submodules python_socks \
+            --collect-all edge_tts \
             --hidden-import api \
             --osx-bundle-identifier com.tgremix.app \
             --icon app/icon.png \
@@ -58,7 +59,7 @@ jobs:
 
           PL="$APP/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName TG二创" "$PL" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string TG二创" "$PL"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.0.0" "$PL" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.0.0" "$PL"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.1.0" "$PL" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.1.0" "$PL"
           /usr/libexec/PlistBuddy -c "Add :NSHighResolutionCapable bool true" "$PL" 2>/dev/null || true
 
           codesign --force --deep --sign - "$APP"

@@ -18,16 +18,16 @@ from tgremix.config import DEFAULTS, load_config, resolve
 from tgremix.runtime import Cancelled, UserError, log, stop_event
 from tgremix.state import State
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 
 
 def _open(path: Path) -> None:
-    if sys.platform == "darwin":
-        subprocess.Popen(["open", str(path)])
-    elif sys.platform.startswith("win"):
-        subprocess.Popen(["explorer", str(path)])
-    else:
-        subprocess.Popen(["xdg-open", str(path)])
+    """用系统默认程序打开文件或文件夹；打不开也不影响主流程"""
+    cmd = {"darwin": "open", "win32": "explorer"}.get(sys.platform, "xdg-open")
+    try:
+        subprocess.Popen([cmd, str(path)])
+    except OSError:
+        log(f"（无法自动打开：{path}）")
 
 
 class _TG:
@@ -83,7 +83,9 @@ def _friendly(e: BaseException) -> str:
     if name in table:
         extra = f"（需等待 {getattr(e, 'seconds', '')} 秒）" if name == "FloodWaitError" else ""
         return table[name] + extra
-    if isinstance(e, (ConnectionError, OSError, asyncio.TimeoutError, TimeoutError)) or "connect" in msg.lower():
+    tg_net = isinstance(e, (ConnectionError, asyncio.TimeoutError, TimeoutError)) or (
+        "proxy" in name.lower() or "socks" in msg.lower() or "connection to telegram" in msg.lower())
+    if tg_net:
         return "连不上 Telegram：请确认代理软件已经打开，并在「账号 → 代理」里填对地址和端口（Clash 一般是 127.0.0.1 和 7890）"
     if isinstance(e, (SystemExit, UserError)):
         return str(e)
@@ -293,12 +295,12 @@ class Api:
         finally:
             state.save()
 
-    def test(self, path: str) -> dict:
+    def test(self, path: str, text: str = "") -> dict:
         if not path:
             return {"ok": False, "error": "请先选择一个视频"}
-        return self._start_thread(self._test, path)
+        return self._start_thread(self._test, path, text or "")
 
-    def _test(self, path: str) -> None:
+    def _test(self, path: str, text: str = "") -> None:
         from tgremix.processor import process_all
 
         cfg = self._cfg()
@@ -307,10 +309,28 @@ class Api:
         self._set_status("试效果：处理前 15 秒…")
         log(f"—— 试效果：{Path(path).name} ——")
         started = time.time()
-        if process_all(cfg, State(self._root / "state.json"), only=Path(path), seconds=15):
+        if process_all(cfg, State(self._root / "state.json"), only=Path(path), seconds=15, text=text):
             vids = sorted(out_dir.rglob("*.mp4"), key=lambda f: f.stat().st_mtime)
             if vids and vids[-1].stat().st_mtime >= started - 1:
                 _open(vids[-1])
+
+    def test_ai(self, text: str = "") -> dict:
+        """写一句解说词并配音，播放给用户听"""
+        from tgremix import voiceover as vo
+
+        cfg = self._cfg()
+        vcfg = cfg["process"].get("voiceover") or {}
+        sample = (text or "").strip() or "一只橘猫在超市里自己推着购物车逛街，店员都看呆了"
+        try:
+            words = vo.write_commentary(sample, 10, vcfg)
+            out = self._root / "logs" / "测试配音.mp3"
+            vo.synthesize(words, vcfg, out)
+            _open(out)
+            return {"ok": True, "text": words}
+        except vo.VoiceoverError as e:
+            return {"ok": False, "error": str(e)}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": _friendly(e)}
 
     def stop(self) -> dict:
         stop_event.set()
@@ -342,6 +362,7 @@ class Api:
         types = {
             "video": ("视频 (*.mp4;*.mov;*.mkv;*.webm;*.m4v;*.avi)",),
             "image": ("图片 (*.png;*.jpg;*.jpeg;*.webp)",),
+            "sticker": ("贴纸 (*.png;*.gif;*.webp;*.jpg;*.jpeg)",),
             "audio": ("音频 (*.mp3;*.m4a;*.aac;*.wav;*.flac;*.ogg)",),
             "font": ("字体 (*.ttf;*.ttc;*.otf)",),
         }

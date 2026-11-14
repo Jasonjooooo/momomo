@@ -14,6 +14,9 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import resolve
+from .edit import build_segments, plan_shots
+from .overlays import sticker_filters, text_filters
+from . import voiceover as vo
 from .runtime import Cancelled, check_stop, ffmpeg_bin, log, stop_event
 from .state import State
 
@@ -147,6 +150,19 @@ def run_ffmpeg(args: list[str], p: dict) -> None:
         log("    ⚠️ 硬件编码失败，改用软件编码重试")
 
 
+def probe_audio_duration(path: Path) -> float:
+    r = subprocess.run([ffmpeg_bin("ffprobe"), "-v", "error", "-show_entries", "format=duration",
+                        "-of", "default=nw=1:nk=1", str(path)], capture_output=True, text=True)
+    try:
+        return float(r.stdout.strip())
+    except ValueError:
+        return 0.0
+
+
+def _clean_for_ai(text: str) -> str:
+    return re.sub(r"https?://\S+|[#＃]\S+|@\w+|\s+", "", text or "")
+
+
 def even(x: float) -> int:
     return max(2, int(round(x / 2)) * 2)
 
@@ -236,7 +252,8 @@ def render_main(job: Job, out: Path, cfg: dict, font: str | None, tmpdir: Path, 
     if dur < 1:
         raise ProcessError(f"去掉片头片尾后不足 1 秒（原视频 {info.duration:.1f} 秒）")
     speed = min(2.0, max(0.5, float(p["speed"] or 1)))
-    out_dur = dur / speed
+    ecfg = p.get("edit") or {}
+    shots = plan_shots(job.src, head, dur, ecfg)
 
     inputs: list[str] = ["-ss", f"{head:.3f}", "-t", f"{dur:.3f}", "-i", str(job.src)]
     n_in = 1
@@ -254,6 +271,11 @@ def render_main(job: Job, out: Path, cfg: dict, font: str | None, tmpdir: Path, 
         graph.append(f"{cur}split[b{i}a][b{i}b];[b{i}b]crop={bw}:{bh}:{bx}:{by},boxblur={r}:2[b{i}c];"
                      f"[b{i}a][b{i}c]overlay={bx}:{by}[b{i}o]")
         cur = f"[b{i}o]"
+
+    # 1.5) 镜头剪辑 + 转场
+    seg_graph, cur, a_src, dur = build_segments(cur, "[0:a]" if info.has_audio else None, shots, ecfg, int(p["fps"]))
+    graph += seg_graph
+    out_dur = dur / speed
 
     # 2) 裁边、放大、变速、调色、锐化、暗角
     chain: list[str] = []
@@ -359,25 +381,97 @@ def render_main(job: Job, out: Path, cfg: dict, font: str | None, tmpdir: Path, 
                      f"{cur}[wmi]overlay={x}:{y}[v3]")
         n_in += 1
         cur = "[v3]"
+    # 5.5) 贴纸、动态文字
+    try:
+        st_inputs, st_graph, cur, n_in = sticker_filters(cfg, p.get("stickers") or [], cur, n_in, W, H, out_dur)
+        tx_graph, cur = text_filters(p.get("texts") or [], cur, W, H, k, out_dur, font, tmpdir)
+    except (FileNotFoundError, RuntimeError) as e:
+        raise ProcessError(str(e)) from e
+    inputs += st_inputs
+    graph += st_graph + tx_graph
+
+    # 5.6) AI 解说配音（失败时跳过配音，视频照常处理）
+    vcfg = p.get("voiceover") or {}
+    voice_file, cues, commentary = None, [], ""
+    if vcfg.get("enabled"):
+        commentary = str(job.meta.get("_commentary") or "")
+        post = job.meta.get("text", "")
+        try:
+            if not commentary:
+                if not _clean_for_ai(post):
+                    raise vo.VoiceoverError("这条视频没有帖子文字，AI 不知道视频讲什么")
+                log("    🎙 AI 写解说词…")
+                commentary = vo.write_commentary(post, out_dur - 1, vcfg)
+            log(f"    🎙 解说：{commentary}")
+            voice_file = tmpdir / "voice.mp3"
+            cues = vo.synthesize(commentary, vcfg, voice_file)
+        except vo.VoiceoverError as e:
+            log(f"    ⚠️ 跳过 AI 解说：{e}")
+            voice_file = None
+    v_delay, v_tempo = 0.5, 1.0
+    if voice_file:
+        v_len = probe_audio_duration(voice_file)
+        room = max(1.0, out_dur - v_delay - 0.3)
+        if v_len > room:
+            v_tempo = min(1.35, v_len / room)  # 解说太长就稍微读快一点，再长就截断
+        if vcfg.get("subtitles", True) and font:
+            per = max(8, int(15 / max(k, 0.5) * k))
+            sub_fs = max(14, int(46 * k))
+            sub_y = int(H * 0.67)
+            for ci, (a, b, text) in enumerate(cues):
+                a, b = v_delay + a / v_tempo, v_delay + max(b, a + 0.8) / v_tempo
+                pieces = vo.split_cue_text(text, per)
+                seg = (b - a) / len(pieces)
+                for pi, piece in enumerate(pieces):
+                    tf = tmpdir / f"sub{ci}_{pi}.txt"
+                    tf.write_text(piece, encoding="utf-8")
+                    t0, t1 = a + pi * seg, min(out_dur, a + (pi + 1) * seg)
+                    if t0 >= out_dur:
+                        break
+                    out_lbl = f"[sub{ci}_{pi}]"
+                    graph.append(f"{cur}drawtext=fontfile={q(font)}:textfile={q(str(tf))}:fontsize={sub_fs}"
+                                 f":fontcolor=#FFE45C:borderw={max(2, int(4 * k))}:bordercolor=black"
+                                 f":x=(w-text_w)/2:y={sub_y}:enable='between(t,{t0:.3f},{t1:.3f})'{out_lbl}")
+                    cur = out_lbl
+    job.meta["_commentary_used"] = commentary if voice_file else ""
+
     graph.append(f"{cur}format=yuv420p[vout]")
 
-    # 6) 声音：原声变速 + 背景音乐
+    # 6) 声音：原声变速 + 解说 + 背景音乐
     ov = float(p.get("original_volume", 1))
     bgm = _pick_bgm(cfg)
     if info.has_audio:
         atempo = f"atempo={speed:.4f}," if abs(speed - 1) > 0.001 else ""
-        graph.append(f"[0:a]{atempo}volume={ov:.2f},aresample=44100[a0]")
+        graph.append(f"{a_src}{atempo}volume={ov:.2f},aresample=44100[a0]")
     else:
         inputs += ["-f", "lavfi", "-t", f"{out_dur:.3f}", "-i", "anullsrc=r=44100:cl=stereo"]
         graph.append(f"[{n_in}:a]anull[a0]")
         n_in += 1
+    if voice_file:
+        inputs += ["-i", str(voice_file)]
+        tempo = f"atempo={v_tempo:.4f}," if v_tempo > 1.001 else ""
+        duck = float(vcfg.get("duck_volume", 0.3))
+        d_ms = int(v_delay * 1000)
+        graph.append(
+            f"[{n_in}:a]{tempo}volume={float(vcfg.get('volume', 1.3)):.2f},aresample=44100,"
+            f"aformat=sample_rates=44100:channel_layouts=stereo,adelay={d_ms}|{d_ms},apad[vo];"
+            f"[vo]asplit[vo1][vo2];"
+            # 解说说话时自动压低原声（duck_volume 越小压得越低）
+            f"[a0][vo1]sidechaincompress=threshold=0.02:ratio={max(1.5, 1 / max(duck, 0.05)):.2f}"
+            f":attack=20:release=400[ad];"
+            f"[ad][vo2]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[a0v]"
+        )
+        n_in += 1
+        graph.append("[a0v]anull[a0x]")
+    else:
+        graph.append("[a0]anull[a0x]")
     if bgm:
         inputs += ["-stream_loop", "-1", "-i", str(bgm)]
         graph.append(f"[{n_in}:a]volume={float(p['bgm_volume']):.2f},aresample=44100[abg];"
-                     f"[a0][abg]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]")
+                     f"[a0x][abg]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]")
         n_in += 1
     else:
-        graph.append("[a0]anull[aout]")
+        graph.append("[a0x]anull[aout]")
 
     args = [*inputs, "-filter_complex", ";".join(graph), "-map", "[vout]", "-map", "[aout]",
             "-t", f"{out_dur:.3f}", "-r", str(int(p["fps"])), str(out)]
@@ -465,7 +559,7 @@ def process_one(job: Job, cfg: dict, font: str | None, out_dir: Path, seconds: f
 
 
 def process_all(cfg: dict, state: State, redo: bool = False, limit: int | None = None,
-                only: Path | None = None, seconds: float | None = None) -> int:
+                only: Path | None = None, seconds: float | None = None, text: str = "") -> int:
     check_ffmpeg()
     font = find_font(cfg["process"].get("font", ""))
     if not font:
@@ -479,6 +573,8 @@ def process_all(cfg: dict, state: State, redo: bool = False, limit: int | None =
         meta.setdefault("channel", "本地")
         meta.setdefault("id", only.stem)
         meta.setdefault("text", "")
+        if text:
+            meta["text"] = text  # 试效果时用界面里填的模拟帖子文字
         jobs = [Job(only, meta, f"file:{only}")]
         redo = True
     else:
@@ -514,6 +610,7 @@ def process_all(cfg: dict, state: State, redo: bool = False, limit: int | None =
             "原文": (job.meta.get("text") or "").replace("\n", " ")[:300],
             "标题": job.meta.get("_title", ""),
             "背景音乐": job.meta.get("_bgm", ""),
+            "AI解说": job.meta.get("_commentary_used", ""),
             "成品": out.name,
         })
     log(f"\n✅ 处理完成：成功 {ok} 个，失败 {len(jobs) - ok} 个")
