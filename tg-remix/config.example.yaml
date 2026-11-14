@@ -1,0 +1,113 @@
+# ═══════════════════════════════════════════════════════════════
+#   TG 视频批量二创 · 配置文件
+#   第一次使用：复制本文件为 config.yaml，再修改 config.yaml
+#   以 # 开头的是说明文字
+# ═══════════════════════════════════════════════════════════════
+
+# ---------------------------------------------------------------
+# 1. Telegram 账号（在 https://my.telegram.org → API development tools 申请）
+# ---------------------------------------------------------------
+telegram:
+  api_id: 1234567            # 换成你自己的 api_id（数字）
+  api_hash: "换成你自己的api_hash"
+  session: "tg"              # 登录凭证文件名（会生成 tg.session，别发给别人）
+
+# ---------------------------------------------------------------
+# 2. 要下载的频道
+#   channel: 频道用户名（@后面的部分）、t.me 链接，或数字 ID
+#            私密频道需要你的账号已经加入
+#   limit:   每次最多查看最近多少条消息
+#   keywords: 可选，只下载帖子文字里包含这些词的视频（任意一个即可）
+#   exclude:  可选，帖子文字里包含这些词就跳过
+# ---------------------------------------------------------------
+channels:
+  - channel: "example_channel"
+    limit: 20
+  # - channel: "https://t.me/another_channel"
+  #   limit: 50
+  #   keywords: ["搞笑", "名场面"]
+  #   exclude: ["广告", "推广"]
+
+download:
+  min_duration: 5            # 短于这么多秒的视频不下载
+  max_duration: 300          # 长于这么多秒的视频不下载
+  max_size_mb: 500           # 大于这么多 MB 的不下载
+
+# ---------------------------------------------------------------
+# 3. 视频处理
+# ---------------------------------------------------------------
+process:
+  # 去掉片头片尾（秒）
+  trim_head: 0
+  trim_tail: 0
+
+  # 裁掉画面边缘（比例，0.05 = 5%），用来去掉贴边的频道角标/黑边
+  crop: { top: 0, bottom: 0, left: 0, right: 0 }
+
+  # 模糊掉画面中的某些区域（如频道 logo），坐标都是相对原画面的比例
+  #   x, y = 区域左上角位置；w, h = 区域宽高
+  # 例：右上角 logo → { x: 0.80, y: 0.02, w: 0.18, h: 0.08 }
+  blur_boxes: []
+
+  # 变速：1.0 = 原速，1.1 = 加快 10%（声音不变调），范围 0.5 ~ 2.0
+  speed: 1.1
+
+  # 轻微放大画面（1.0 = 不放大，1.05 = 放大 5% 后居中裁切）
+  zoom: 1.0
+
+  # 滤镜预设：none / bright(明亮) / cinematic(电影感) / vintage(复古)
+  #           cool(冷色) / warm(暖色) / bw(黑白)
+  filter: bright
+  sharpen: true              # 轻微锐化
+  vignette: false            # 暗角
+
+  # 画幅：vertical = 9:16 竖屏（抖音/视频号/小红书）
+  #       horizontal = 16:9 横屏（B站/YouTube）
+  #       keep = 保持原比例
+  # 竖屏/横屏时，原画面放在中间，空白处用模糊放大的原画面填充
+  layout: vertical
+
+  fps: 30
+
+  # 顶部标题
+  title:
+    enabled: true
+    source: post             # post = 用 TG 帖子文字的第一句；fixed = 用下面的 text
+    text: ""                 # source 为 fixed 时使用；留空就不显示
+    max_chars_per_line: 14
+    max_lines: 2
+    font_size: 64
+    color: "white"
+    box: true                # 文字后面加半透明黑底
+
+  # 水印（可以同时用图片和文字，也可以都不用）
+  watermark:
+    image: ""                # 例：assets/logo.png（建议透明背景 PNG）
+    image_width: 0.18        # 占画面宽度的比例
+    text: ""                 # 例：@我的账号
+    font_size: 36
+    opacity: 0.6
+    position: bottom_right   # top_left / top_right / bottom_left / bottom_right
+
+  # 片头片尾（视频文件路径，留空不加）
+  intro: ""                  # 例：assets/intro.mp4
+  outro: ""                  # 例：assets/outro.mp4
+
+  # 背景音乐：一个音频文件，或者一个文件夹（每条视频随机挑一首）
+  bgm: ""                    # 例：assets/bgm/
+  bgm_volume: 0.25           # 背景音乐音量（1.0 = 原始音量）
+  original_volume: 1.0       # 原视频声音音量，0 = 静音只留背景音乐
+
+  # 中文字体（标题/文字水印用），留空自动查找苹方等系统字体
+  font: ""
+
+  # 编码器：auto = M 芯片用苹果硬件编码（快），失败时自动改用软件编码
+  encoder: auto
+  video_bitrate: "8M"
+
+# ---------------------------------------------------------------
+# 4. 文件夹
+# ---------------------------------------------------------------
+paths:
+  downloads: downloads       # 下载的原视频
+  output: output             # 成品，按日期分文件夹

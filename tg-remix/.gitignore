@@ -1,0 +1,10 @@
+# 个人配置与登录凭证，不要提交
+config.yaml
+*.session
+*.session-journal
+# 运行产生的文件
+downloads/
+output/
+state.json
+.venv/
+__pycache__/
