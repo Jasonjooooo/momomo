@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   build:
-    runs-on: macos-14   # GitHub 的 M 芯片 Mac
+    runs-on: macos-latest   # GitHub 的 M 芯片 Mac
     timeout-minutes: 45
     defaults:
       run:
