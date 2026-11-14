@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>TG 二创</title>
+<style>
+:root {
+  --bg: #f5f6f8; --panel: #ffffff; --fg: #1d1f23; --muted: #6b7280; --border: #e3e5e9;
+  --accent: #2b7cff; --accent-soft: #e8f0ff; --ok: #12a150; --warn: #c27c00; --err: #d93636;
+  --side: #eceef2; --input: #f7f8fa;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #17181b; --panel: #1f2125; --fg: #e8e9eb; --muted: #9aa0a8; --border: #2e3136;
+    --accent: #4d93ff; --accent-soft: #1c2a44; --side: #131417; --input: #26292e; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { display: flex; background: var(--bg); color: var(--fg);
+  font: 14px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", sans-serif;
+  -webkit-user-select: none; user-select: none; }
+input, textarea, .log { -webkit-user-select: text; user-select: text; }
+
+/* 侧边栏 */
+nav { width: 190px; flex: none; background: var(--side); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; padding: 22px 10px 12px; }
+nav h1 { font-size: 18px; margin: 0 10px 18px; display: flex; align-items: center; gap: 8px; }
+nav h1 .logo { width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(135deg,#2b7cff,#7a5cff);
+  color: #fff; display: grid; place-items: center; font-size: 13px; }
+nav button { all: unset; cursor: pointer; padding: 9px 12px; border-radius: 8px; margin-bottom: 2px;
+  display: flex; align-items: center; gap: 10px; color: var(--fg); }
+nav button:hover { background: var(--border); }
+nav button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+nav .ico { width: 18px; text-align: center; }
+nav .foot { margin-top: auto; font-size: 12px; color: var(--muted); padding: 0 10px; }
+nav .foot a { color: var(--accent); cursor: pointer; word-break: break-all; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
+.dot.ok { background: var(--ok); } .dot.run { background: var(--accent); animation: blink 1s infinite; }
+@keyframes blink { 50% { opacity: .3; } }
+
+/* 主区域 */
+main { flex: 1; overflow-y: auto; padding: 26px 32px 60px; }
+section.page { display: none; max-width: 860px; }
+section.page.on { display: block; }
+h2 { font-size: 22px; margin: 0 0 4px; }
+.sub { color: var(--muted); margin: 0 0 20px; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin-bottom: 16px; }
+.card h3 { margin: 0 0 12px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+.card h3 .hint { font-weight: 400; color: var(--muted); font-size: 12px; }
+.row { display: flex; align-items: center; gap: 12px; margin: 10px 0; flex-wrap: wrap; }
+.row > label:first-child, .lbl { width: 110px; flex: none; color: var(--muted); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
+input[type=text], input[type=number], input[type=password], select {
+  font: inherit; color: var(--fg); background: var(--input); border: 1px solid var(--border);
+  border-radius: 8px; padding: 6px 10px; min-width: 0; }
+input[type=text], input[type=password] { flex: 1; }
+input[type=number] { width: 90px; }
+input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+input[type=range] { flex: 1; max-width: 280px; accent-color: var(--accent); }
+input[type=checkbox] { accent-color: var(--accent); width: 16px; height: 16px; }
+.val { width: 56px; font-variant-numeric: tabular-nums; color: var(--accent); font-weight: 600; }
+.check { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; margin-right: 16px; }
+.help { font-size: 12.5px; color: var(--muted); margin: 4px 0 0; }
+.help a { color: var(--accent); cursor: pointer; }
+button.btn { font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--panel); color: var(--fg); padding: 7px 16px; }
+button.btn:hover:not(:disabled) { border-color: var(--muted); }
+button.btn.pri { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+button.btn.big { padding: 11px 26px; font-size: 15px; }
+button.btn.danger { color: var(--err); }
+button.btn:disabled { opacity: .45; cursor: default; }
+.file { display: flex; gap: 8px; align-items: center; flex: 1; min-width: 0; }
+.file .path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--muted); font-size: 13px; background: var(--input); border: 1px dashed var(--border);
+  border-radius: 8px; padding: 6px 10px; }
+.badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+  background: var(--input); font-size: 13px; }
+.msg { margin-top: 8px; font-size: 13px; min-height: 18px; }
+.msg.err { color: var(--err); } .msg.ok { color: var(--ok); }
+.hidden { display: none !important; }
+
+/* 频道表格 */
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12.5px; padding: 4px 6px; }
+td { padding: 4px 6px; }
+td input[type=text] { width: 100%; }
+td input[type=number] { width: 70px; }
+td.del { width: 36px; }
+td.del button { all: unset; cursor: pointer; color: var(--muted); padding: 4px 8px; border-radius: 6px; }
+td.del button:hover { background: var(--input); color: var(--err); }
+.empty { text-align: center; color: var(--muted); padding: 18px; }
+
+/* 运行 */
+.runbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.status { display: flex; align-items: center; gap: 10px; margin: 14px 0 8px; font-weight: 600; }
+.progress { color: var(--muted); font-weight: 400; font-size: 13px; font-variant-numeric: tabular-nums; }
+.log { background: #0f1115; color: #d7dae0; border-radius: 10px; padding: 12px 14px; height: 340px; overflow-y: auto;
+  font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-all; }
+.log .e { color: #ff7b7b; } .log .o { color: #6fdc8c; } .log .w { color: #f0c36a; }
+.toast { position: fixed; right: 24px; bottom: 24px; background: var(--fg); color: var(--bg); padding: 10px 16px;
+  border-radius: 10px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.toast.show { opacity: .92; }
+</style>
+</head>
+<body>
+<nav>
+  <h1><span class="logo">TG</span>TG 二创</h1>
+  <button data-page="run" class="on"><span class="ico">▶</span>运行</button>
+  <button data-page="channels"><span class="ico">📺</span>频道</button>
+  <button data-page="effects"><span class="ico">🎨</span>效果</button>
+  <button data-page="account"><span class="ico">👤</span>账号 <span id="navDot" class="dot"></span></button>
+  <div class="foot">
+    <div>数据文件夹：</div>
+    <a id="rootLink" title="打开数据文件夹"></a>
+    <div id="ver" style="margin-top:6px"></div>
+  </div>
+</nav>
+
+<main>
+<!-- ======================= 运行 ======================= -->
+<section class="page on" id="page-run">
+  <h2>运行</h2>
+  <p class="sub">从频道下载新视频，并按「效果」里的设置批量处理。</p>
+
+  <div class="card" id="setupTips">
+    <h3>还差几步</h3>
+    <div id="tipList"></div>
+  </div>
+
+  <div class="card">
+    <div class="runbar">
+      <button class="btn pri big" id="btnAll">▶ 下载并处理</button>
+      <button class="btn" id="btnDownload">只下载</button>
+      <button class="btn" id="btnProcess">只处理</button>
+      <button class="btn" id="btnRedo" title="改了效果设置后，把已处理过的视频全部重新处理">全部重新处理</button>
+      <button class="btn danger" id="btnStop" disabled>■ 停止</button>
+    </div>
+    <div class="status"><span id="runDot" class="dot"></span><span id="status">空闲</span><span class="progress" id="progress"></span></div>
+    <div class="log" id="log"></div>
+    <div class="row" style="margin-bottom:0">
+      <button class="btn" data-open="output">📂 打开成品文件夹</button>
+      <button class="btn" data-open="downloads">打开下载文件夹</button>
+      <button class="btn" id="btnClearLog">清空日志</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>试效果 <span class="hint">选一个视频，只处理前 15 秒，完成后自动播放，不影响正式记录</span></h3>
+    <div class="row">
+      <button class="btn pri" id="btnTest">选择视频并试效果…</button>
+    </div>
+  </div>
+</section>
+
+<!-- ======================= 频道 ======================= -->
+<section class="page" id="page-channels">
+  <h2>频道</h2>
+  <p class="sub">要下载视频的 Telegram 频道。私密频道需要你的账号已经加入。</p>
+  <div class="card">
+    <table>
+      <thead><tr><th style="width:34%">频道（用户名或 t.me 链接）</th><th>每次查看条数</th><th>只要含这些词</th><th>排除这些词</th><th></th></tr></thead>
+      <tbody id="chBody"></tbody>
+    </table>
+    <div class="row"><button class="btn" id="btnAddCh">＋ 添加频道</button></div>
+    <p class="help">「只要含这些词 / 排除这些词」可留空，多个词用逗号分隔，按帖子文字判断。</p>
+  </div>
+  <div class="card">
+    <h3>下载规则</h3>
+    <div class="row"><label>最短</label><input type="number" min="0" data-path="download.min_duration"> 秒（更短的不下载）</div>
+    <div class="row"><label>最长</label><input type="number" min="1" data-path="download.max_duration"> 秒（更长的不下载）</div>
+    <div class="row"><label>最大</label><input type="number" min="1" data-path="download.max_size_mb"> MB</div>
+  </div>
+</section>
+
+<!-- ======================= 效果 ======================= -->
+<section class="page" id="page-effects">
+  <h2>效果</h2>
+  <p class="sub">修改后自动保存。建议先到「运行」页用「试效果」看看。</p>
+
+  <div class="card">
+    <h3>节奏与画面</h3>
+    <div class="row"><label>变速</label><input type="range" min="0.8" max="1.5" step="0.05" data-path="process.speed"><span class="val" data-show="process.speed" data-suffix="×"></span><span class="help">声音不变调</span></div>
+    <div class="row"><label>放大</label><input type="range" min="1" max="1.25" step="0.01" data-path="process.zoom"><span class="val" data-show="process.zoom" data-suffix="×"></span><span class="help">放大后居中裁切</span></div>
+    <div class="row"><label>滤镜</label>
+      <select data-path="process.filter">
+        <option value="none">无</option><option value="bright">明亮</option><option value="cinematic">电影感</option>
+        <option value="vintage">复古</option><option value="cool">冷色</option><option value="warm">暖色</option><option value="bw">黑白</option>
+      </select>
+      <label class="check"><input type="checkbox" data-path="process.sharpen">锐化</label>
+      <label class="check"><input type="checkbox" data-path="process.vignette">暗角</label>
+    </div>
+    <div class="row"><label>画幅</label>
+      <select data-path="process.layout">
+        <option value="vertical">9:16 竖屏（抖音 / 视频号 / 小红书）</option>
+        <option value="horizontal">16:9 横屏（B站 / YouTube）</option>
+        <option value="keep">保持原比例</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>剪裁</h3>
+    <div class="row"><label>去掉片头</label><input type="number" min="0" step="0.5" data-path="process.trim_head"> 秒
+      <span style="width:24px"></span>去掉片尾 <input type="number" min="0" step="0.5" data-path="process.trim_tail"> 秒</div>
+    <div class="row"><label>裁掉边缘</label>
+      上 <input type="number" min="0" max="40" step="1" data-path="process.crop.top" data-pct> %
+      下 <input type="number" min="0" max="40" step="1" data-path="process.crop.bottom" data-pct> %
+      左 <input type="number" min="0" max="40" step="1" data-path="process.crop.left" data-pct> %
+      右 <input type="number" min="0" max="40" step="1" data-path="process.crop.right" data-pct> %
+    </div>
+    <div class="row"><label>模糊角落</label>
+      <label class="check"><input type="checkbox" data-corner="tl">左上</label>
+      <label class="check"><input type="checkbox" data-corner="tr">右上</label>
+      <label class="check"><input type="checkbox" data-corner="bl">左下</label>
+      <label class="check"><input type="checkbox" data-corner="br">右下</label>
+    </div>
+    <p class="help">用来盖住原视频角落的频道 logo / 水印（每个角约占画面 1/4 宽、1/10 高）。</p>
+  </div>
+
+  <div class="card">
+    <h3>标题 <label class="check" style="margin-left:auto"><input type="checkbox" data-path="process.title.enabled">显示</label></h3>
+    <div class="row"><label>来源</label>
+      <select data-path="process.title.source">
+        <option value="post">自动：TG 帖子文字的第一句</option>
+        <option value="fixed">固定文字</option>
+      </select>
+    </div>
+    <div class="row"><label>固定文字</label><input type="text" data-path="process.title.text" placeholder="来源为「固定文字」时使用；自动模式下帖子没文字时也用它"></div>
+    <div class="row"><label>字号</label><input type="range" min="36" max="100" step="2" data-path="process.title.font_size"><span class="val" data-show="process.title.font_size"></span>
+      <label class="check"><input type="checkbox" data-path="process.title.box">半透明黑底</label></div>
+    <div class="row"><label>每行字数</label><input type="number" min="6" max="30" data-path="process.title.max_chars_per_line">
+      <span style="width:16px"></span>最多行数 <input type="number" min="1" max="4" data-path="process.title.max_lines"></div>
+  </div>
+
+  <div class="card">
+    <h3>水印</h3>
+    <div class="row"><label>文字水印</label><input type="text" data-path="process.watermark.text" placeholder="例：@我的账号（留空不加）"></div>
+    <div class="row"><label>图片水印</label>
+      <div class="file"><span class="path" data-file="process.watermark.image"></span>
+        <button class="btn" data-pick="image" data-target="process.watermark.image">选择…</button>
+        <button class="btn" data-clear="process.watermark.image">清除</button></div></div>
+    <div class="row"><label>图片大小</label><input type="range" min="0.06" max="0.4" step="0.01" data-path="process.watermark.image_width"><span class="val" data-show="process.watermark.image_width" data-pctshow></span><span class="help">占画面宽度</span></div>
+    <div class="row"><label>不透明度</label><input type="range" min="0.1" max="1" step="0.05" data-path="process.watermark.opacity"><span class="val" data-show="process.watermark.opacity" data-pctshow></span></div>
+    <div class="row"><label>位置</label>
+      <select data-path="process.watermark.position">
+        <option value="bottom_right">右下</option><option value="bottom_left">左下</option>
+        <option value="top_right">右上</option><option value="top_left">左上</option>
+      </select></div>
+  </div>
+
+  <div class="card">
+    <h3>片头片尾与音乐</h3>
+    <div class="row"><label>片头</label><div class="file"><span class="path" data-file="process.intro"></span>
+      <button class="btn" data-pick="video" data-target="process.intro">选择…</button><button class="btn" data-clear="process.intro">清除</button></div></div>
+    <div class="row"><label>片尾</label><div class="file"><span class="path" data-file="process.outro"></span>
+      <button class="btn" data-pick="video" data-target="process.outro">选择…</button><button class="btn" data-clear="process.outro">清除</button></div></div>
+    <div class="row"><label>背景音乐</label><div class="file"><span class="path" data-file="process.bgm"></span>
+      <button class="btn" data-pick="audio" data-target="process.bgm">选文件…</button>
+      <button class="btn" data-pick="folder" data-target="process.bgm" title="选一个文件夹，每条视频随机挑一首">选文件夹…</button>
+      <button class="btn" data-clear="process.bgm">清除</button></div></div>
+    <div class="row"><label>音乐音量</label><input type="range" min="0" max="1" step="0.05" data-path="process.bgm_volume"><span class="val" data-show="process.bgm_volume" data-pctshow></span></div>
+    <div class="row"><label>原声音量</label><input type="range" min="0" max="1.5" step="0.05" data-path="process.original_volume"><span class="val" data-show="process.original_volume" data-pctshow></span><span class="help">0 = 静音，只留背景音乐</span></div>
+  </div>
+
+  <div class="card">
+    <h3>高级</h3>
+    <div class="row"><label>编码方式</label>
+      <select data-path="process.encoder">
+        <option value="auto">自动（M 芯片硬件加速，失败时用软件）</option>
+        <option value="software">软件编码（更慢，兼容性最好）</option>
+      </select></div>
+    <div class="row"><label>码率</label>
+      <select data-path="process.video_bitrate">
+        <option value="5M">5M（文件小）</option><option value="8M">8M（推荐）</option><option value="12M">12M（画质高）</option>
+      </select></div>
+    <div class="row"><label>帧率</label>
+      <select data-path="process.fps" data-num><option value="25">25</option><option value="30">30</option><option value="60">60</option></select></div>
+    <div class="row"><label>字体</label><div class="file"><span class="path" data-file="process.font" data-empty="自动（系统中文字体）"></span>
+      <button class="btn" data-pick="font" data-target="process.font">选择…</button><button class="btn" data-clear="process.font">自动</button></div></div>
+  </div>
+</section>
+
+<!-- ======================= 账号 ======================= -->
+<section class="page" id="page-account">
+  <h2>账号</h2>
+  <p class="sub">用你自己的 Telegram 账号下载视频。登录信息只保存在这台电脑上。</p>
+
+  <div class="card">
+    <h3>① Telegram API</h3>
+    <div class="row"><label>api_id</label><input type="text" id="apiId" placeholder="一串数字" style="max-width:220px"></div>
+    <div class="row"><label>api_hash</label><input type="text" id="apiHash" placeholder="一串字母和数字"></div>
+    <p class="help">还没有？<a data-url="https://my.telegram.org">打开 my.telegram.org</a> → 手机号登录 → API development tools →
+      随便填个英文应用名创建，就能看到 api_id 和 api_hash。创建时一直报 ERROR 的话，换个代理节点再试。</p>
+  </div>
+
+  <div class="card">
+    <h3>② 代理 <span class="hint">国内需要</span></h3>
+    <div class="row"><label>类型</label>
+      <select id="pxType"><option value="socks5">SOCKS5</option><option value="http">HTTP</option></select></div>
+    <div class="row"><label>地址</label><input type="text" id="pxHost" placeholder="例：127.0.0.1（不用代理就留空）" style="max-width:260px">
+      端口 <input type="number" id="pxPort" placeholder="7890"></div>
+    <p class="help">用 Clash / ClashX / Clash Verge 等：地址填 127.0.0.1，端口一般是 7890（类型选 SOCKS5 或 HTTP 都行）。
+      如果代理软件开了「增强模式 / TUN 模式」，这里可以留空。</p>
+  </div>
+
+  <div class="card">
+    <h3>③ 登录 <span id="loginBadge" class="badge"><span class="dot"></span>未登录</span></h3>
+    <div id="loginForm">
+      <div class="row"><label>手机号</label><input type="text" id="phone" placeholder="带国家码，例：+8613800000000" style="max-width:260px">
+        <button class="btn pri" id="btnSendCode">发送验证码</button></div>
+      <div class="row hidden" id="codeRow"><label>验证码</label><input type="text" id="code" placeholder="Telegram App 里收到的验证码" style="max-width:260px">
+        <button class="btn pri" id="btnCode">登录</button></div>
+      <div class="row hidden" id="pwRow"><label>两步验证密码</label><input type="password" id="pw" style="max-width:260px">
+        <button class="btn pri" id="btnPw">确定</button></div>
+    </div>
+    <div class="row hidden" id="logoutRow"><button class="btn danger" id="btnLogout">退出登录</button>
+      <button class="btn" id="btnRecheck">重新检查连接</button></div>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+</section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+let api = null;
+let cfg = null;
+let info = {};
+let authorized = false;
+
+// ---------- 小工具 ----------
+function toast(text) {
+  const t = $("#toast"); t.textContent = text; t.classList.add("show");
+  clearTimeout(toast.timer); toast.timer = setTimeout(() => t.classList.remove("show"), 1800);
+}
+const getPath = (o, p) => p.split(".").reduce((a, k) => (a == null ? a : a[k]), o);
+function setPath(o, p, v) {
+  const ks = p.split("."); let a = o;
+  for (const k of ks.slice(0, -1)) a = a[k] ??= {};
+  a[ks[ks.length - 1]] = v;
+}
+let saveTimer = null;
+function save(now = false) {
+  clearTimeout(saveTimer);
+  const go = async () => {
+    const r = await api.save_config(cfg);
+    if (!r.ok) toast("保存失败：" + r.error);
+    renderTips();
+  };
+  if (now) return go();
+  saveTimer = setTimeout(go, 400);
+}
+
+// ---------- 页面切换 ----------
+$$("nav button[data-page]").forEach((b) => b.addEventListener("click", () => {
+  $$("nav button[data-page]").forEach((x) => x.classList.toggle("on", x === b));
+  $$("section.page").forEach((s) => s.classList.toggle("on", s.id === "page-" + b.dataset.page));
+}));
+function gotoPage(p) { $(`nav button[data-page="${p}"]`).click(); }
+
+// ---------- 通用表单绑定 ----------
+function showVal(path) {
+  $$(`[data-show="${path}"]`).forEach((el) => {
+    const v = Number(getPath(cfg, path));
+    el.textContent = el.hasAttribute("data-pctshow") ? Math.round(v * 100) + "%" : (v + (el.dataset.suffix || ""));
+  });
+}
+function bindForm() {
+  $$("[data-path]").forEach((el) => {
+    const path = el.dataset.path;
+    let v = getPath(cfg, path);
+    if (el.type === "checkbox") el.checked = !!v;
+    else if (el.hasAttribute("data-pct")) el.value = Math.round((Number(v) || 0) * 100);
+    else el.value = v ?? "";
+    showVal(path);
+    if (el._bound) return;
+    el._bound = true;
+    el.addEventListener(el.type === "range" ? "input" : "change", () => {
+      let nv;
+      if (el.type === "checkbox") nv = el.checked;
+      else if (el.hasAttribute("data-pct")) nv = Math.max(0, Math.min(40, Number(el.value) || 0)) / 100;
+      else if (el.type === "number" || el.type === "range" || el.hasAttribute("data-num")) nv = Number(el.value) || 0;
+      else nv = el.value;
+      setPath(cfg, path, nv);
+      showVal(path);
+      save();
+    });
+  });
+  $$("[data-file]").forEach((el) => {
+    const v = getPath(cfg, el.dataset.file);
+    el.textContent = v || el.dataset.empty || "未选择";
+    el.title = v || "";
+  });
+  bindCorners();
+}
+
+// 模糊角落
+const CORNERS = {
+  tl: { x: 0.02, y: 0.02, w: 0.25, h: 0.1 }, tr: { x: 0.73, y: 0.02, w: 0.25, h: 0.1 },
+  bl: { x: 0.02, y: 0.88, w: 0.25, h: 0.1 }, br: { x: 0.73, y: 0.88, w: 0.25, h: 0.1 },
+};
+const sameBox = (a, b) => ["x", "y", "w", "h"].every((k) => Math.abs(Number(a[k]) - b[k]) < 0.001);
+function bindCorners() {
+  const boxes = cfg.process.blur_boxes || [];
+  $$("[data-corner]").forEach((el) => {
+    el.checked = boxes.some((b) => sameBox(b, CORNERS[el.dataset.corner]));
+    if (el._bound) return;
+    el._bound = true;
+    el.addEventListener("change", () => {
+      const others = (cfg.process.blur_boxes || []).filter((b) => !Object.values(CORNERS).some((c) => sameBox(b, c)));
+      const chosen = $$("[data-corner]").filter((c) => c.checked).map((c) => ({ ...CORNERS[c.dataset.corner] }));
+      cfg.process.blur_boxes = [...others, ...chosen];
+      save();
+    });
+  });
+}
+
+// 选择文件
+$$("[data-pick]").forEach((b) => b.addEventListener("click", async () => {
+  const p = await api.pick(b.dataset.pick);
+  if (!p) return;
+  setPath(cfg, b.dataset.target, p);
+  bindForm(); save();
+}));
+$$("[data-clear]").forEach((b) => b.addEventListener("click", () => {
+  setPath(cfg, b.dataset.clear, "");
+  bindForm(); save();
+}));
+$$("[data-open]").forEach((b) => b.addEventListener("click", () => api.open_folder(b.dataset.open)));
+$$("[data-url]").forEach((a) => a.addEventListener("click", () => api.open_url(a.dataset.url)));
+$("#rootLink").addEventListener("click", () => api.open_folder("root"));
+
+// ---------- 频道 ----------
+const splitWords = (s) => s.split(/[,，、\s]+/).map((x) => x.trim()).filter(Boolean);
+function renderChannels() {
+  const body = $("#chBody");
+  body.replaceChildren();
+  const chs = cfg.channels;
+  if (!chs.length) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = '<td colspan="5" class="empty">还没有频道，点下面「添加频道」</td>';
+    body.append(tr);
+  }
+  chs.forEach((ch, i) => {
+    const tr = document.createElement("tr");
+    const mk = (type, value, ph, on) => {
+      const td = document.createElement("td");
+      const inp = document.createElement("input");
+      inp.type = type; inp.value = value ?? ""; inp.placeholder = ph;
+      if (type === "number") { inp.min = 1; inp.max = 1000; }
+      inp.addEventListener("change", () => { on(inp.value); save(); });
+      td.append(inp); return td;
+    };
+    tr.append(
+      mk("text", ch.channel, "例：channel_name 或 https://t.me/xxx", (v) => (ch.channel = v.trim())),
+      mk("number", ch.limit ?? 20, "20", (v) => (ch.limit = Math.max(1, parseInt(v) || 20))),
+      mk("text", (ch.keywords || []).join("，"), "可留空", (v) => (ch.keywords = splitWords(v))),
+      mk("text", (ch.exclude || []).join("，"), "可留空", (v) => (ch.exclude = splitWords(v))),
+    );
+    const td = document.createElement("td"); td.className = "del";
+    const del = document.createElement("button"); del.textContent = "✕"; del.title = "删除";
+    del.addEventListener("click", () => { chs.splice(i, 1); renderChannels(); save(); });
+    td.append(del); tr.append(td); body.append(tr);
+  });
+}
+$("#btnAddCh").addEventListener("click", () => {
+  cfg.channels.push({ channel: "", limit: 20 });
+  renderChannels();
+  $("#chBody tr:last-child input").focus();
+});
+
+// ---------- 账号 ----------
+function fillAccount() {
+  const tg = cfg.telegram;
+  $("#apiId").value = tg.api_id || "";
+  $("#apiHash").value = String(tg.api_hash || "").includes("换成") ? "" : (tg.api_hash || "");
+  const px = tg.proxy || {};
+  $("#pxType").value = px.type || "socks5";
+  $("#pxHost").value = px.host || "";
+  $("#pxPort").value = px.port || "";
+}
+function readAccount() {
+  cfg.telegram.api_id = parseInt($("#apiId").value.trim()) || 0;
+  cfg.telegram.api_hash = $("#apiHash").value.trim();
+  cfg.telegram.proxy = { type: $("#pxType").value, host: $("#pxHost").value.trim(), port: parseInt($("#pxPort").value) || 0 };
+}
+["#apiId", "#apiHash", "#pxType", "#pxHost", "#pxPort"].forEach((s) => $(s).addEventListener("change", () => { readAccount(); save(); }));
+
+function setLogin(ok, me) {
+  authorized = ok;
+  $("#loginBadge").innerHTML = ok ? `<span class="dot ok"></span>已登录：${escapeHtml(me || "")}` : '<span class="dot"></span>未登录';
+  $("#navDot").className = "dot" + (ok ? " ok" : "");
+  $("#loginForm").classList.toggle("hidden", ok);
+  $("#logoutRow").classList.toggle("hidden", !ok);
+  renderTips();
+}
+function loginMsg(text, cls = "") { const m = $("#loginMsg"); m.textContent = text; m.className = "msg " + cls; }
+const escapeHtml = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+async function busy(btn, fn) {
+  btn.disabled = true; const t = btn.textContent; btn.textContent = "请稍候…";
+  try { return await fn(); } finally { btn.disabled = false; btn.textContent = t; }
+}
+$("#btnSendCode").addEventListener("click", (e) => busy(e.target, async () => {
+  readAccount(); await save(true);
+  if (!cfg.telegram.api_id || !cfg.telegram.api_hash) return loginMsg("请先填写 api_id 和 api_hash", "err");
+  loginMsg("正在连接 Telegram…");
+  const r = await api.login_send_code($("#phone").value.trim());
+  if (!r.ok) return loginMsg(r.error, "err");
+  $("#codeRow").classList.remove("hidden"); $("#code").focus();
+  loginMsg("验证码已发送到你的 Telegram App（不是短信），请查看", "ok");
+}));
+$("#btnCode").addEventListener("click", (e) => busy(e.target, async () => {
+  const r = await api.login_code($("#code").value.trim());
+  if (!r.ok) return loginMsg(r.error, "err");
+  if (r.need_password) { $("#pwRow").classList.remove("hidden"); $("#pw").focus(); return loginMsg("你的账号开了两步验证，请输入密码"); }
+  setLogin(r.authorized, r.me); loginMsg(r.authorized ? "登录成功" : "登录未完成", r.authorized ? "ok" : "err");
+}));
+$("#btnPw").addEventListener("click", (e) => busy(e.target, async () => {
+  const r = await api.login_password($("#pw").value);
+  if (!r.ok) return loginMsg(r.error, "err");
+  setLogin(r.authorized, r.me); loginMsg("登录成功", "ok");
+}));
+$("#btnLogout").addEventListener("click", (e) => busy(e.target, async () => {
+  if (!confirm("确定退出登录？之后需要重新输入验证码。")) return;
+  await api.logout(); setLogin(false); loginMsg("已退出");
+  $("#codeRow").classList.add("hidden"); $("#pwRow").classList.add("hidden");
+}));
+$("#btnRecheck").addEventListener("click", (e) => busy(e.target, checkLogin));
+async function checkLogin() {
+  if (!cfg.telegram.api_id) return setLogin(false);
+  loginMsg("正在检查登录状态…");
+  const r = await api.check_login();
+  if (!r.ok) { setLogin(false); return loginMsg(r.error, "err"); }
+  setLogin(r.authorized, r.me);
+  loginMsg(r.authorized ? "" : (info.has_session ? "登录已失效，请重新登录" : ""));
+}
+
+// ---------- 运行 ----------
+function renderTips() {
+  const tips = [];
+  if (!cfg.telegram.api_id || !cfg.telegram.api_hash) tips.push(["填写 Telegram 的 api_id 和 api_hash", "account"]);
+  if (!authorized) tips.push(["登录 Telegram 账号", "account"]);
+  if (!cfg.channels.some((c) => c.channel)) tips.push(["添加至少一个频道", "channels"]);
+  $("#setupTips").classList.toggle("hidden", !tips.length);
+  $("#tipList").replaceChildren(...tips.map(([t, p], i) => {
+    const d = document.createElement("div"); d.className = "row";
+    d.innerHTML = `<span>${i + 1}. ${t}</span>`;
+    const b = document.createElement("button"); b.className = "btn"; b.textContent = "去设置 →";
+    b.addEventListener("click", () => gotoPage(p)); d.append(b); return d;
+  }));
+}
+async function run(mode, redo = false) {
+  const r = await api.start(mode, redo);
+  if (!r.ok) toast(r.error);
+  poll();
+}
+$("#btnAll").addEventListener("click", () => run("all"));
+$("#btnDownload").addEventListener("click", () => run("download"));
+$("#btnProcess").addEventListener("click", () => run("process"));
+$("#btnRedo").addEventListener("click", () => { if (confirm("把已经处理过的视频按现在的效果全部重新处理？")) run("process", true); });
+$("#btnStop").addEventListener("click", () => api.stop());
+$("#btnClearLog").addEventListener("click", async () => { await api.clear_log(); logNext = 0; $("#log").replaceChildren(); });
+$("#btnTest").addEventListener("click", async () => {
+  const p = await api.pick("video");
+  if (!p) return;
+  const r = await api.test(p);
+  if (!r.ok) toast(r.error);
+  poll();
+});
+
+let logNext = 0;
+let polling = false;
+async function poll() {
+  if (polling) return; polling = true;
+  try {
+    const r = await api.poll(logNext);
+    if (r.lines.length) {
+      const box = $("#log");
+      const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+      for (const line of r.lines) {
+        const d = document.createElement("div");
+        d.textContent = line;
+        if (/❌|失败|出错/.test(line)) d.className = "e";
+        else if (/✅|完成/.test(line)) d.className = "o";
+        else if (/⚠️|跳过|⏹/.test(line)) d.className = "w";
+        box.append(d);
+      }
+      while (box.childElementCount > 1500) box.firstChild.remove();
+      if (atBottom) box.scrollTop = box.scrollHeight;
+    }
+    logNext = r.next;
+    $("#status").textContent = r.running ? r.status : "空闲";
+    $("#progress").textContent = r.progress || "";
+    $("#runDot").className = "dot" + (r.running ? " run" : "");
+    ["#btnAll", "#btnDownload", "#btnProcess", "#btnRedo", "#btnTest"].forEach((s) => ($(s).disabled = r.running));
+    $("#btnStop").disabled = !r.running;
+  } finally { polling = false; }
+}
+
+// ---------- 启动 ----------
+async function init() {
+  api = window.pywebview.api;
+  info = await api.get_state();
+  cfg = info.config;
+  cfg.channels ||= [];
+  $("#rootLink").textContent = info.root;
+  $("#ver").textContent = "版本 " + info.version;
+  bindForm(); renderChannels(); fillAccount(); renderTips();
+  setInterval(poll, 700); poll();
+  checkLogin();
+}
+window.addEventListener("pywebviewready", init);
+</script>
+</body>
+</html>

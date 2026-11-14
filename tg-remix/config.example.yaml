@@ -11,6 +11,12 @@ telegram:
   api_id: 1234567            # 换成你自己的 api_id（数字）
   api_hash: "换成你自己的api_hash"
   session: "tg"              # 登录凭证文件名（会生成 tg.session，别发给别人）
+  # 代理：国内一般需要。用 Clash 等软件的话，host 填 127.0.0.1，port 填它的端口（常见 7890）
+  #       type 可选 socks5 / http；不用代理就把 host 留空
+  proxy:
+    type: socks5
+    host: ""
+    port: 7890
 
 # ---------------------------------------------------------------
 # 2. 要下载的频道

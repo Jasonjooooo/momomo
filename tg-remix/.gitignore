@@ -8,3 +8,9 @@ output/
 state.json
 .venv/
 __pycache__/
+# 打包产物
+build/
+dist/
+release/
+*.spec
+*.zip

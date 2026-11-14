@@ -19,6 +19,7 @@ if sys.version_info < (3, 9):
     sys.exit("需要 Python 3.9 或更新版本")
 
 from tgremix.config import load_config, resolve
+from tgremix.runtime import UserError
 from tgremix.state import State
 
 
@@ -53,6 +54,8 @@ def main() -> None:
             f = Path(args.file).expanduser().resolve()
             cfg["paths"]["output"] = str(resolve(cfg, cfg["paths"]["output"]) / "试效果")
             process_all(cfg, state, only=f, seconds=args.seconds or 15)
+    except UserError as e:
+        sys.exit(f"❌ {e}")
     except KeyboardInterrupt:
         state.save()
         print("\n已中断，进度已保存，下次运行会接着来")

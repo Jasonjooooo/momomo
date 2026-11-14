@@ -1,2 +1,3 @@
 telethon>=1.36
 pyyaml>=6.0
+python-socks[asyncio]>=2.4

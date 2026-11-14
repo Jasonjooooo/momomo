@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import resolve
+from .runtime import Cancelled, check_stop, ffmpeg_bin, log, stop_event
 from .state import State
 
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}
@@ -47,8 +48,10 @@ class ProcessError(Exception):
 
 # ---------------------------------------------------------------- 基础工具
 def check_ffmpeg() -> None:
-    if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):
-        raise SystemExit("找不到 ffmpeg，请先安装：brew install ffmpeg")
+    for name in ("ffmpeg", "ffprobe"):
+        b = ffmpeg_bin(name)
+        if not (Path(b).exists() or shutil.which(b)):
+            raise SystemExit(f"找不到 {name}，请先安装：brew install ffmpeg")
 
 
 @dataclass
@@ -61,7 +64,7 @@ class MediaInfo:
 
 def probe(path: Path) -> MediaInfo:
     r = subprocess.run(
-        ["ffprobe", "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(path)],
+        [ffmpeg_bin("ffprobe"), "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(path)],
         capture_output=True, text=True,
     )
     if r.returncode != 0:
@@ -87,7 +90,7 @@ def find_font(cfg_font: str) -> str | None:
     if cfg_font:
         if Path(cfg_font).expanduser().exists():
             return str(Path(cfg_font).expanduser())
-        print(f"⚠️ 配置的字体不存在：{cfg_font}，改为自动查找")
+        log(f"⚠️ 配置的字体不存在：{cfg_font}，改为自动查找")
     for f in FONT_CANDIDATES:
         if Path(f).exists():
             return f
@@ -101,7 +104,7 @@ _encoder_cache: dict[str, bool] = {}
 
 def has_encoder(name: str) -> bool:
     if name not in _encoder_cache:
-        r = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True)
+        r = subprocess.run([ffmpeg_bin("ffmpeg"), "-hide_banner", "-encoders"], capture_output=True, text=True)
         _encoder_cache[name] = name in r.stdout
     return _encoder_cache[name]
 
@@ -116,19 +119,32 @@ def video_codec_args(p: dict, software: bool = False) -> list[str]:
 AUDIO_ARGS = ["-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-ac", "2"]
 
 
+def _run(cmd: list[str]) -> tuple[int, str]:
+    """运行 ffmpeg；点了停止就立刻结束它"""
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    while True:
+        try:
+            _, err = proc.communicate(timeout=0.5)
+            return proc.returncode, err or ""
+        except subprocess.TimeoutExpired:
+            if stop_event.is_set():
+                proc.kill()
+                proc.communicate()
+                raise Cancelled()
+
+
 def run_ffmpeg(args: list[str], p: dict) -> None:
     """先用硬件编码，失败自动改用软件编码"""
     for software in (False, True):
-        cmd = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *args[:-1],
+        cmd = [ffmpeg_bin("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error", *args[:-1],
                *video_codec_args(p, software), *AUDIO_ARGS,
                "-pix_fmt", "yuv420p", "-movflags", "+faststart", args[-1]]
-        r = subprocess.run(cmd, capture_output=True, text=True)
-        if r.returncode == 0:
+        code, err = _run(cmd)
+        if code == 0:
             return
-        uses_hw = "h264_videotoolbox" in cmd
-        if not uses_hw:
-            raise ProcessError(r.stderr.strip()[-800:] or "ffmpeg 处理失败")
-        print("    ⚠️ 硬件编码失败，改用软件编码重试")
+        if "h264_videotoolbox" not in cmd:
+            raise ProcessError(err.strip()[-800:] or "ffmpeg 处理失败")
+        log("    ⚠️ 硬件编码失败，改用软件编码重试")
 
 
 def even(x: float) -> int:
@@ -453,7 +469,7 @@ def process_all(cfg: dict, state: State, redo: bool = False, limit: int | None =
     check_ffmpeg()
     font = find_font(cfg["process"].get("font", ""))
     if not font:
-        print("⚠️ 没找到中文字体，标题和文字水印会失败；可在 config.yaml 的 process.font 指定字体文件")
+        log("⚠️ 没找到中文字体，标题和文字水印会失败；可在 config.yaml 的 process.font 指定字体文件")
 
     if only:
         if not only.exists():
@@ -470,22 +486,23 @@ def process_all(cfg: dict, state: State, redo: bool = False, limit: int | None =
     if limit:
         jobs = jobs[:limit]
     if not jobs:
-        print("没有需要处理的新视频")
+        log("没有需要处理的新视频")
         return 0
 
     out_dir = resolve(cfg, cfg["paths"]["output"]) / datetime.now().strftime("%Y-%m-%d")
     ok = 0
-    print(f"🎬 开始处理 {len(jobs)} 个视频 → {out_dir}")
+    log(f"🎬 开始处理 {len(jobs)} 个视频 → {out_dir}")
     for i, job in enumerate(jobs, 1):
-        print(f"[{i}/{len(jobs)}] {job.key}")
+        check_stop()
+        log(f"[{i}/{len(jobs)}] {job.key}")
         started = datetime.now()
         try:
             out = process_one(job, cfg, font, out_dir, seconds)
         except ProcessError as e:
-            print(f"    ❌ 失败：{e}")
+            log(f"    ❌ 失败：{e}")
             continue
         secs = (datetime.now() - started).total_seconds()
-        print(f"    ✅ {out.name}（用时 {secs:.0f} 秒）")
+        log(f"    ✅ {out.name}（用时 {secs:.0f} 秒）")
         ok += 1
         if not only:
             state.mark_processed(job.key)
@@ -499,5 +516,5 @@ def process_all(cfg: dict, state: State, redo: bool = False, limit: int | None =
             "背景音乐": job.meta.get("_bgm", ""),
             "成品": out.name,
         })
-    print(f"\n✅ 处理完成：成功 {ok} 个，失败 {len(jobs) - ok} 个")
+    log(f"\n✅ 处理完成：成功 {ok} 个，失败 {len(jobs) - ok} 个")
     return ok
