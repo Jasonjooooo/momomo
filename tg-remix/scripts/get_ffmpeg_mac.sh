@@ -14,15 +14,38 @@ check() {
   ./ffmpeg -hide_banner -version | head -1 || return 1
   local filters; filters=$(./ffmpeg -hide_banner -filters 2>/dev/null)
   for f in $NEED_FILTERS; do
-    echo "$filters" | grep -qE "^ \S+ $f " || { echo "缺少滤镜 ${f}"; return 1; }
+    # 注意：不能用 echo | grep -q，grep 提前退出会让 echo 报 Broken pipe，在 pipefail 下被误判为失败
+    grep -E "^ \S+ $f " <<<"$filters" >/dev/null || { echo "缺少滤镜 ${f}"; return 1; }
   done
-  ./ffmpeg -hide_banner -encoders 2>/dev/null | grep -q libx264 || { echo "缺少 libx264"; return 1; }
-  ./ffmpeg -hide_banner -encoders 2>/dev/null | grep -q aac || { echo "缺少 aac"; return 1; }
-  echo "videotoolbox: $(./ffmpeg -hide_banner -encoders 2>/dev/null | grep -c h264_videotoolbox)"
+  local encoders; encoders=$(./ffmpeg -hide_banner -encoders 2>/dev/null)
+  grep libx264 <<<"$encoders" >/dev/null || { echo "缺少 libx264"; return 1; }
+  grep aac <<<"$encoders" >/dev/null || { echo "缺少 aac"; return 1; }
+  echo "videotoolbox: $(grep -c h264_videotoolbox <<<"$encoders")"
   return 0
 }
 
 clean() { rm -rf ./ffmpeg ./ffprobe ./libs ./*.zip; }
+
+# 自己仓库里保存的一份（检查通过过的），优先用它：不受第三方网站变化影响，每次打包都一样
+CACHE_TAG="tg-remix-ffmpeg"
+CACHE_FILE="ffbin-arm64.zip"
+from_cache() {
+  echo "== 方案 0：仓库里保存的 ffmpeg =="
+  [ -n "${GH_TOKEN:-}" ] || { echo "没有 GH_TOKEN"; return 1; }
+  gh release download "$CACHE_TAG" -p "$CACHE_FILE" -D . --clobber >/dev/null 2>&1 &&
+  unzip -o -q "$CACHE_FILE" && rm -f "$CACHE_FILE" && chmod +x ffmpeg ffprobe
+}
+
+save_cache() {
+  [ -n "${GH_TOKEN:-}" ] || return 0
+  rm -f "/tmp/$CACHE_FILE"
+  zip -q -r -y "/tmp/$CACHE_FILE" ffmpeg ffprobe $( [ -d libs ] && echo libs ) &&
+  { gh release view "$CACHE_TAG" >/dev/null 2>&1 ||
+    gh release create "$CACHE_TAG" --title "TG二创 打包用的 ffmpeg（自动保存，勿删）" \
+      --notes "打包流程自动保存的 arm64 ffmpeg/ffprobe，已通过功能检查。删除后下次打包会重新获取。" >/dev/null; } &&
+  gh release upload "$CACHE_TAG" "/tmp/$CACHE_FILE" --clobber >/dev/null &&
+  echo "💾 已把这份 ffmpeg 保存到仓库 Releases（$CACHE_TAG）"
+}
 
 from_riedl() {
   echo "== 方案 1：martin-riedl.de 静态版 =="
@@ -38,10 +61,11 @@ from_brew() {
   dylibbundler -cd -of -b -x ./ffmpeg -x ./ffprobe -d ./libs -p @executable_path/libs/ >/dev/null
 }
 
-for source in from_riedl from_brew; do
+for source in from_cache from_riedl from_brew; do
   clean
   if $source && check; then
     echo "✅ ffmpeg 准备好了（${source}）"
+    [ "$source" != "from_cache" ] && save_cache
     ls -la
     exit 0
   fi

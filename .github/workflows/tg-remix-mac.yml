@@ -38,6 +38,8 @@ jobs:
           pip install -r requirements.txt pywebview pyinstaller pillow
 
       - name: 获取 ffmpeg
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: bash scripts/get_ffmpeg_mac.sh "$PWD/build/ffbin"
 
       - name: 打包应用
