@@ -74,6 +74,21 @@ DEFAULTS = {
         "encoder": "auto",
         "video_bitrate": "8M",
     },
+    "bot": {
+        "token": "",
+        "autostart": False,
+        "categories": ["搞笑动物", "搞笑", "轻微擦边", "新奇吃瓜"],
+        "custom_categories": "",
+        "threshold": 60,
+        "no_caption": "ask",
+        "min_duration": 3,
+        "max_duration": 180,
+        "max_size_mb": 500,
+        "orientation": "any",
+        "include": [],
+        "exclude": ["广告", "推广", "加群", "代理", "博彩"],
+        "auto_download": True,
+    },
     "paths": {"downloads": "downloads", "output": "output"},
 }
 

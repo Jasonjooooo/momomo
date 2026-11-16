@@ -18,7 +18,7 @@ from tgremix.config import DEFAULTS, load_config, resolve
 from tgremix.runtime import Cancelled, UserError, log, stop_event
 from tgremix.state import State
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 
 
 def _open(path: Path) -> None:
@@ -114,6 +114,14 @@ class Api:
         runtime.set_log_handler(self._on_log)
         (root / "logs").mkdir(exist_ok=True)
         self._logfile = root / "logs" / f"{datetime.now():%Y-%m-%d}.log"
+        from tgremix.bot import FilterBot
+
+        self._bot = FilterBot(root, self._cfg)
+        try:
+            if (self._cfg().get("bot") or {}).get("autostart"):
+                self._bot.start()
+        except Exception:  # noqa: BLE001
+            pass
 
     # ------------------------------------------------------------ 内部
     def _on_log(self, msg: str, is_progress: bool) -> None:
@@ -193,7 +201,7 @@ class Api:
     def save_config(self, data: dict) -> dict:
         try:
             cfg = self._cfg()
-            for k in ("telegram", "channels", "download", "process"):
+            for k in ("telegram", "channels", "download", "process", "bot"):
                 if k in data:
                     cfg[k] = data[k]
             self._write_cfg(cfg)
@@ -331,6 +339,26 @@ class Api:
             return {"ok": False, "error": str(e)}
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "error": _friendly(e)}
+
+    # ------------------------------------------------------------ 机器人
+    def bot_start(self) -> dict:
+        self._bot.start()
+        time.sleep(0.3)
+        return {"ok": True}
+
+    def bot_stop(self) -> dict:
+        self._bot.stop()
+        return {"ok": True}
+
+    def bot_info(self) -> dict:
+        return self._bot.info()
+
+    def bot_reset_owner(self) -> dict:
+        """换主人：下一个给机器人发 /start 的人成为主人"""
+        self._bot.state["owner_id"] = None
+        self._bot.state["owner_name"] = ""
+        self._bot.save()
+        return {"ok": True}
 
     def stop(self) -> dict:
         stop_event.set()

@@ -107,6 +107,7 @@ td.del button:hover { background: var(--input); color: var(--err); }
   <button data-page="run" class="on"><span class="ico">▶</span>运行</button>
   <button data-page="channels"><span class="ico">📺</span>频道</button>
   <button data-page="effects"><span class="ico">🎨</span>效果</button>
+  <button data-page="bot"><span class="ico">🤖</span>机器人 <span id="botDot" class="dot"></span></button>
   <button data-page="account"><span class="ico">👤</span>账号 <span id="navDot" class="dot"></span></button>
   <div class="foot">
     <div>数据文件夹：</div>
@@ -334,6 +335,73 @@ td.del button:hover { background: var(--input); color: var(--err); }
       <select data-path="process.fps" data-num><option value="25">25</option><option value="30">30</option><option value="60">60</option></select></div>
     <div class="row"><label>字体</label><div class="file"><span class="path" data-file="process.font" data-empty="自动（系统中文字体）"></span>
       <button class="btn" data-pick="font" data-target="process.font">选择…</button><button class="btn" data-clear="process.font">自动</button></div></div>
+  </div>
+</section>
+
+<!-- ======================= 机器人 ======================= -->
+<section class="page" id="page-bot">
+  <h2>筛选机器人</h2>
+  <p class="sub">把视频转发给你的机器人，它按分类和规则自动筛选：合格的发进「素材库」频道，20MB 以内的直接下载进 TG二创。不需要 my.telegram.org。</p>
+
+  <div class="card">
+    <div class="row" style="margin-top:0">
+      <span id="botStatusDot" class="dot"></span><strong id="botStatus">未启动</strong>
+      <span style="margin-left:auto"></span>
+      <button class="btn pri" id="btnBotStart">▶ 启动机器人</button>
+      <button class="btn danger" id="btnBotStop" disabled>■ 停止</button>
+    </div>
+    <div class="row"><span class="lbl">主人</span><span id="botOwner">—</span>
+      <button class="btn" id="btnBotOwner" title="下一个给机器人发 /start 的人会成为主人" style="margin-left:auto">更换主人</button></div>
+    <div class="row"><span class="lbl">素材库</span><span id="botLib">—</span></div>
+    <div class="row"><span class="lbl">统计</span><span id="botStats">—</span></div>
+    <div class="msg err" id="botErr"></div>
+    <div class="log" id="botLog" style="height:220px"></div>
+  </div>
+
+  <div class="card">
+    <h3>第一次设置（只需一次）</h3>
+    <ol style="margin:0;padding-left:20px;line-height:2">
+      <li>在 Telegram 搜索 <b>@BotFather</b>，发送 <code>/newbot</code>，按提示起个名字，用户名要以 <code>bot</code> 结尾（如 <code>jason_video_bot</code>）</li>
+      <li>BotFather 会回复一串 Token（形如 <code>123456:ABC-xyz…</code>），复制粘贴到下面「机器人 Token」</li>
+      <li>点上面「启动机器人」</li>
+      <li>在 Telegram 打开你的机器人，点「开始 / Start」——你就成了它的主人（别人用不了）</li>
+      <li>新建一个<b>私有频道</b>当「素材库」→ 频道设置 → 管理员 → 添加你的机器人 → 回到频道发一条 <code>/bind</code></li>
+      <li>以后在任何频道看到视频，<b>直接转发给机器人</b>（可多选一起转发），它就会自动筛选</li>
+    </ol>
+    <p class="help">需要能连上 Telegram：使用「账号」页里填的代理。AI 分类使用「效果 → AI 解说配音」里填的 API Key。</p>
+  </div>
+
+  <div class="card">
+    <h3>机器人设置</h3>
+    <div class="row"><label>机器人 Token</label><input type="password" data-path="bot.token" placeholder="从 @BotFather 复制"></div>
+    <div class="row"><span class="lbl"></span><label class="check"><input type="checkbox" data-path="bot.autostart">打开 TG二创 时自动启动机器人</label></div>
+  </div>
+
+  <div class="card">
+    <h3>要哪些内容</h3>
+    <div class="row"><label>分类</label>
+      <label class="check"><input type="checkbox" data-cat="搞笑动物">搞笑动物</label>
+      <label class="check"><input type="checkbox" data-cat="搞笑">搞笑</label>
+      <label class="check"><input type="checkbox" data-cat="轻微擦边">轻微擦边</label>
+      <label class="check"><input type="checkbox" data-cat="新奇吃瓜">新奇吃瓜</label></div>
+    <div class="row"><label>其他分类</label><input type="text" data-path="bot.custom_categories" placeholder="可选，多个用逗号分隔，例：美食探店，户外运动"></div>
+    <p class="help">AI 根据帖子文字判断分类；涉及未成年人、露骨色情、血腥暴力的一律跳过。一个分类都不勾 = 只按下面的规则筛。</p>
+    <div class="row"><label>AI 严格程度</label><input type="range" min="40" max="90" step="5" data-path="bot.threshold"><span class="val" data-show="bot.threshold" data-suffix="%"></span><span class="help">越高越严；接近门槛的会发按钮问你</span></div>
+    <div class="row"><label>没有文字的视频</label>
+      <select data-path="bot.no_caption">
+        <option value="ask">发按钮问我</option><option value="keep">直接留下</option><option value="drop">直接跳过</option>
+      </select></div>
+  </div>
+
+  <div class="card">
+    <h3>规则</h3>
+    <div class="row"><label>时长</label><input type="number" min="0" data-path="bot.min_duration"> 到 <input type="number" min="1" data-path="bot.max_duration"> 秒</div>
+    <div class="row"><label>最大</label><input type="number" min="1" data-path="bot.max_size_mb"> MB</div>
+    <div class="row"><label>画面方向</label>
+      <select data-path="bot.orientation"><option value="any">不限</option><option value="vertical">只要竖屏</option><option value="horizontal">只要横屏</option></select></div>
+    <div class="row"><label>必须含这些词</label><input type="text" data-list="bot.include" placeholder="可留空；多个用逗号分隔"></div>
+    <div class="row"><label>排除这些词</label><input type="text" data-list="bot.exclude" placeholder="例：广告，推广，加群"></div>
+    <div class="row"><span class="lbl"></span><label class="check"><input type="checkbox" data-path="bot.auto_download">20MB 以内的视频直接下载进 TG二创（之后在「运行」页点「只处理」）</label></div>
   </div>
 </section>
 
@@ -718,6 +786,43 @@ $("#btnTestAi").addEventListener("click", (e) => busy(e.target, async () => {
   m.className = "msg ok"; m.textContent = "解说：" + r.text + "（配音已自动播放）";
 }));
 
+// ---------- 机器人 ----------
+function bindBot() {
+  const cats = cfg.bot.categories || [];
+  $$("[data-cat]").forEach((el) => {
+    el.checked = cats.includes(el.dataset.cat);
+    if (el._bound) return; el._bound = true;
+    el.addEventListener("change", () => {
+      cfg.bot.categories = $$("[data-cat]").filter((c) => c.checked).map((c) => c.dataset.cat);
+      save();
+    });
+  });
+  $$("[data-list]").forEach((el) => {
+    el.value = (getPath(cfg, el.dataset.list) || []).join("，");
+    if (el._bound) return; el._bound = true;
+    el.addEventListener("change", () => { setPath(cfg, el.dataset.list, splitWords(el.value)); save(); });
+  });
+}
+$("#btnBotStart").addEventListener("click", async () => { await save(true); await api.bot_start(); pollBot(); });
+$("#btnBotStop").addEventListener("click", async () => { await api.bot_stop(); pollBot(); });
+$("#btnBotOwner").addEventListener("click", async () => {
+  if (!confirm("更换主人后，下一个给机器人发 /start 的人会成为新主人。确定？")) return;
+  await api.bot_reset_owner(); pollBot();
+});
+async function pollBot() {
+  const b = await api.bot_info();
+  $("#botStatus").textContent = b.running ? `运行中：@${b.username || "…"}` : "未启动";
+  $("#botStatusDot").className = "dot" + (b.running ? " ok" : "");
+  $("#botDot").className = "dot" + (b.running ? " ok" : "");
+  $("#btnBotStart").disabled = b.running; $("#btnBotStop").disabled = !b.running;
+  $("#botOwner").textContent = b.owner || "还没有（启动后在 Telegram 给机器人发 /start）";
+  $("#botLib").textContent = b.library || "还没绑定（把机器人加为频道管理员，在频道里发 /bind）";
+  const st = b.stats || {};
+  const cats = Object.entries(st.cats || {}).map(([k, v]) => `${k} ${v}`).join("、");
+  $("#botStats").textContent = `收到 ${st.total || 0}，留下 ${st.keep || 0}${cats ? "（" + cats + "）" : ""}，跳过 ${st.drop || 0}，待确认 ${b.pending || 0}`;
+  $("#botErr").textContent = b.error || "";
+}
+
 let logNext = 0;
 let polling = false;
 async function poll() {
@@ -734,6 +839,11 @@ async function poll() {
         else if (/✅|完成/.test(line)) d.className = "o";
         else if (/⚠️|跳过|⏹/.test(line)) d.className = "w";
         box.append(d);
+        if (line.includes("🤖")) {
+          const bl = $("#botLog"); bl.append(d.cloneNode(true));
+          while (bl.childElementCount > 500) bl.removeChild(bl.firstChild);
+          bl.scrollTop = bl.scrollHeight;
+        }
       }
       while (box.childElementCount > 1500) box.firstChild.remove();
       if (atBottom) box.scrollTop = box.scrollHeight;
@@ -755,8 +865,10 @@ async function init() {
   cfg.channels ||= [];
   $("#rootLink").textContent = info.root;
   $("#ver").textContent = "版本 " + info.version;
-  bindForm(); renderChannels(); renderStickers(); renderTexts(); fillAccount(); renderTips();
+  cfg.bot ||= {};
+  bindForm(); bindBot(); renderChannels(); renderStickers(); renderTexts(); fillAccount(); renderTips();
   setInterval(poll, 700); poll();
+  setInterval(pollBot, 2000); pollBot();
   checkLogin();
 }
 window.addEventListener("pywebviewready", init);

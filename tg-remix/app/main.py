@@ -56,6 +56,9 @@ def selftest() -> int:
     print("中文字体:", font)
 
     import edge_tts  # noqa: F401  （AI 配音依赖要打包进来）
+    import aiohttp_socks  # noqa: F401  （机器人走代理要用）
+    from tgremix.bot import FilterBot  # noqa: F401
+    print("机器人组件: ✅")
 
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
