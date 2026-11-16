@@ -118,7 +118,8 @@ class Api:
         self._logfile = root / "logs" / f"{datetime.now():%Y-%m-%d}.log"
         from tgremix.bot import FilterBot
 
-        self._bot = FilterBot(root, self._cfg)
+        self._auto_pending = False
+        self._bot = FilterBot(root, self._cfg, on_downloaded=self._on_bot_download)
         try:
             if (self._cfg().get("bot") or {}).get("autostart"):
                 self._bot.start()
@@ -179,6 +180,8 @@ class Api:
                 self._running = False
                 self._progress = ""
                 self._status = "空闲"
+            if self._auto_pending:  # 刚才在忙时机器人又下载了新视频 → 接着自动二创
+                threading.Timer(1.0, self._kick_auto).start()
 
     def _set_status(self, s: str) -> None:
         with self._lock:
@@ -343,6 +346,45 @@ class Api:
             return {"ok": False, "error": str(e)}
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "error": _friendly(e)}
+
+    # ------------------------------------------------------------ 自动二创
+    def _on_bot_download(self, path: str) -> None:
+        """机器人下载好一个视频（在机器人线程里调用）"""
+        if not (self._cfg().get("bot") or {}).get("auto_process", True):
+            return
+        self._auto_pending = True
+        threading.Timer(3.0, self._kick_auto).start()  # 稍等几秒，同一批的视频一起处理
+
+    def _kick_auto(self) -> None:
+        if not self._auto_pending:
+            return
+        with self._lock:
+            busy = self._running
+        if busy:
+            return  # 正在处理别的，结束后会自动再来
+        self._start_thread(self._auto_work)
+
+    def _auto_work(self) -> None:
+        from tgremix.processor import process_all
+
+        self._auto_pending = False
+        cfg = self._cfg()
+        state = State(self._root / "state.json")
+        self._set_status("自动二创中…")
+        log("—— 自动二创：处理机器人下载的新视频 ——")
+        send_back = (cfg.get("bot") or {}).get("send_back", True)
+
+        def after(job, out):
+            if send_back and job.meta.get("channel") == "机器人":
+                parts = [job.meta.get("_title") or "", f"#{job.meta['category']}" if job.meta.get("category") else "",
+                         f"来源：{job.meta.get('channel_title')}" if job.meta.get("channel_title") else "",
+                         job.meta.get("link") or ""]
+                self._bot.send_result(out, "🎬 二创完成\n" + "\n".join(x for x in parts if x))
+
+        try:
+            process_all(cfg, state, on_done=after)
+        finally:
+            state.save()
 
     # ------------------------------------------------------------ 机器人
     def bot_start(self) -> dict:

@@ -559,7 +559,8 @@ def process_one(job: Job, cfg: dict, font: str | None, out_dir: Path, seconds: f
 
 
 def process_all(cfg: dict, state: State, redo: bool = False, limit: int | None = None,
-                only: Path | None = None, seconds: float | None = None, text: str = "") -> int:
+                only: Path | None = None, seconds: float | None = None, text: str = "",
+                on_done=None) -> int:
     check_ffmpeg()
     font = find_font(cfg["process"].get("font", ""))
     if not font:
@@ -603,6 +604,11 @@ def process_all(cfg: dict, state: State, redo: bool = False, limit: int | None =
         if not only:
             state.mark_processed(job.key)
             state.save()
+        if on_done:
+            try:
+                on_done(job, out)
+            except Exception as e:  # noqa: BLE001  回调失败不影响处理
+                log(f"    ⚠️ 处理完成后的操作失败：{e}")
         _append_manifest(out_dir / "清单.csv", {
             "处理时间": started.strftime("%Y-%m-%d %H:%M"),
             "频道": job.meta.get("channel_title") or job.meta.get("channel", ""),

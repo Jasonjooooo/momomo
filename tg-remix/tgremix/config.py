@@ -88,6 +88,8 @@ DEFAULTS = {
         "include": [],
         "exclude": ["广告", "推广", "加群", "代理", "博彩"],
         "auto_download": True,
+        "auto_process": True,   # 下载后自动二创
+        "send_back": True,      # 二创完成后把成品发回 Telegram
     },
     "paths": {"downloads": "downloads", "output": "output"},
 }

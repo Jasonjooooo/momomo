@@ -36,9 +36,11 @@ class BotError(Exception):
 
 
 class FilterBot:
-    def __init__(self, root: Path, get_cfg):
+    def __init__(self, root: Path, get_cfg, on_downloaded=None):
         self.root = root
         self.get_cfg = get_cfg  # 每次读取最新配置，界面里改了立刻生效
+        self.on_downloaded = on_downloaded  # 下载好一个视频后通知外面（自动二创）
+        self.loop = None
         self.state_file = root / "bot_state.json"
         self.state = {"owner_id": None, "owner_name": "", "library_id": None, "library_title": "",
                       "offset": 0, "seen": [], "pending": {}, "stats": {}}
@@ -52,7 +54,7 @@ class FilterBot:
         self.running = False
         self.last_error = ""
         self.username = ""
-        self._batch: dict = {"keep": 0, "drop": 0, "ask": 0, "cats": {}, "last": 0.0}
+        self._batch: dict = {"keep": 0, "drop": 0, "ask": 0, "big": 0, "cats": {}, "last": 0.0}
 
     # ------------------------------------------------------------ 状态
     def save(self) -> None:
@@ -143,6 +145,7 @@ class FilterBot:
         if not re.fullmatch(r"\d+:[\w-]{20,}", self.token):
             raise BotError("请先填写正确的机器人 Token（@BotFather 给你的那一串，形如 123456:ABC-xyz…）")
         self.api = str(bcfg.get("api_base") or "https://api.telegram.org").rstrip("/")
+        self.loop = asyncio.get_running_loop()
         async with await self._session() as self.http:
             me = await self.call("getMe")
             self.username = me.get("username", "")
@@ -408,6 +411,13 @@ class FilterBot:
         if bcfg.get("auto_download", True) and item.get("file_id") and 0 < item["size"] <= TG_FILE_LIMIT:
             saved = await self._download(item, cfg)
         big = not saved and item["size"] > TG_FILE_LIMIT
+        if big:
+            self._batch["big"] += 1
+        if saved and self.on_downloaded:
+            try:
+                self.on_downloaded(saved)
+            except Exception as e:  # noqa: BLE001
+                log(f"🤖 ⚠️ 通知自动二创失败：{e}")
         log(f"🤖 ✅ 留下{('「' + cat + '」') if cat else ''}{'，已下载' if saved else ''}{'（超过 20MB，需从素材库导出）' if big else ''}："
             f"{_clip(item['caption'] or '（无文字）', 30)}" + (f"（{why}）" if why else ""))
 
@@ -438,7 +448,64 @@ class FilterBot:
         cats = "、".join(f"{k} {v}" for k, v in b["cats"].items())
         text = f"📦 本批 {total} 条：留下 {b['keep']}" + (f"（{cats}）" if cats else "") + \
                f"，跳过 {b['drop']}" + (f"，待你确认 {b['ask']}" if b["ask"] else "")
+        if b.get("big"):
+            text += f"\n📎 其中 {b['big']} 条超过 20MB，机器人下载不了，已放进素材库，需要用 Telegram 电脑版导出"
+        cfg = self.get_cfg()
+        if b["keep"] - b.get("big", 0) > 0 and (cfg.get("bot") or {}).get("auto_process", True):
+            text += "\n🎬 正在自动二创，做好后会发给你"
         if not self.state.get("library_id") and b["keep"]:
             text += "\n⚠️ 还没绑定素材库，只下载了 20MB 以内的视频"
-        self._batch = {"keep": 0, "drop": 0, "ask": 0, "cats": {}, "last": 0.0}
+        self._batch = {"keep": 0, "drop": 0, "ask": 0, "big": 0, "cats": {}, "last": 0.0}
         await self.send(self.state["owner_id"], text)
+
+
+# ---------------------------------------------------------------- 发回成品
+TG_UPLOAD_LIMIT = 50 * 1024 * 1024  # Bot API 上传上限
+
+
+async def _send_file(self, path: Path, caption: str) -> bool:
+    import aiohttp
+
+    owner = self.state.get("owner_id")
+    if not owner:
+        return False
+    size = path.stat().st_size
+    if size > TG_UPLOAD_LIMIT:
+        await self.send(owner, f"🎬 二创完成：{path.name}\n文件 {size / 1048576:.0f}MB，超过 Telegram 机器人 50MB 的发送上限，"
+                               f"请在电脑上「TG二创 → output」文件夹里找。")
+        return False
+    for method, field in (("sendVideo", "video"), ("sendDocument", "document")):
+        form = aiohttp.FormData()
+        form.add_field("chat_id", str(owner))
+        form.add_field("caption", caption[:1000])
+        if method == "sendVideo":
+            form.add_field("supports_streaming", "true")
+        form.add_field(field, path.read_bytes(), filename=path.name, content_type="video/mp4")
+        try:
+            async with self.http.post(f"{self.api}/bot{self.token}/{method}", data=form,
+                                      timeout=aiohttp.ClientTimeout(total=600)) as r:
+                data = await r.json(content_type=None)
+            if data.get("ok"):
+                return True
+            log(f"🤖 ⚠️ {method} 失败：{data.get('description')}")
+        except Exception as e:  # noqa: BLE001
+            log(f"🤖 ⚠️ 发送成品失败：{type(e).__name__}")
+    return False
+
+
+def send_result(self, path, caption: str = "", timeout: float = 900) -> bool:
+    """在别的线程里调用：把二创成品发给主人（机器人没运行就跳过）"""
+    if not self.running or self.loop is None:
+        return False
+    fut = asyncio.run_coroutine_threadsafe(_send_file(self, Path(path), caption), self.loop)
+    try:
+        ok = fut.result(timeout)
+    except Exception as e:  # noqa: BLE001
+        log(f"🤖 ⚠️ 发送成品失败：{e}")
+        return False
+    if ok:
+        log(f"🤖 📤 已把成品发回 Telegram：{Path(path).name}")
+    return ok
+
+
+FilterBot.send_result = send_result

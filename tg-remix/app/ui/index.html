@@ -409,7 +409,10 @@ td.del button:hover { background: var(--input); color: var(--err); }
       <select data-path="bot.orientation"><option value="any">不限</option><option value="vertical">只要竖屏</option><option value="horizontal">只要横屏</option></select></div>
     <div class="row"><label>必须含这些词</label><input type="text" data-list="bot.include" placeholder="可留空；多个用逗号分隔"></div>
     <div class="row"><label>排除这些词</label><input type="text" data-list="bot.exclude" placeholder="例：广告，推广，加群"></div>
-    <div class="row"><span class="lbl"></span><label class="check"><input type="checkbox" data-path="bot.auto_download">20MB 以内的视频直接下载进 TG二创（之后在「运行」页点「只处理」）</label></div>
+    <div class="row"><span class="lbl"></span><label class="check"><input type="checkbox" data-path="bot.auto_download">20MB 以内的视频直接下载进 TG二创</label></div>
+    <div class="row"><span class="lbl"></span><label class="check"><input type="checkbox" data-path="bot.auto_process">下载后<b>自动二创</b>（按「效果」页的设置）</label></div>
+    <div class="row"><span class="lbl"></span><label class="check"><input type="checkbox" data-path="bot.send_back">二创完成后把成品<b>发回我的 Telegram</b>（50MB 以内），手机上直接保存发布</label></div>
+    <p class="help">Telegram 规定机器人只能下载 20MB 以内的视频；更大的会放进素材库，需要用 Telegram 电脑版导出后放进「TG二创 → downloads」再处理。</p>
   </div>
 </section>
 
