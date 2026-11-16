@@ -10,7 +10,7 @@ DEFAULTS = {
     "telegram": {"api_id": 0, "api_hash": "", "session": "tg",
                  "proxy": {"auto": True, "type": "socks5", "host": "", "port": 0}},
     "channels": [],
-    "download": {"min_duration": 5, "max_duration": 300, "max_size_mb": 500, "concurrency": 3},
+    "download": {"min_duration": 5, "max_duration": 300, "max_size_mb": 500, "concurrency": 3, "connections": 6},
     "process": {
         "trim_head": 0,
         "trim_tail": 0,

@@ -168,6 +168,14 @@ async def download_with_client(client, cfg: dict, state: State) -> int:
 
     # ---------- 第 2 步：并行下载 ----------
     total_mb = sum((t["m"].file.size or 0) for t in todo) / 1048576
+    conns = int(rules.get("connections", 6) or 0)
+    fast = {"on": conns > 1, "fd": None}
+    if fast["on"]:
+        from .fastdl import FastDownloader
+
+        fast["fd"] = FastDownloader(client, conns)
+    log(f"⚙️ 加速：cryptg {'已启用 ✅' if _has_cryptg() else '未启用（解密较慢）'} · "
+        + (f"多连接分段下载 {conns} 条连接" if fast["on"] else "多连接下载已关闭"))
     log(f"⬇️ 开始下载 {len(todo)} 个视频，共 {total_mb:.0f} MB，同时下载 {parallel} 个")
     sp = _Speed(len(todo))
     sp.parallel = parallel
@@ -183,12 +191,26 @@ async def download_with_client(client, cfg: dict, state: State) -> int:
             final = t["dir"] / f"{m.id}{ext}"
             part = t["dir"] / f"{m.id}.part{ext}"
             started = time.time()
+            how = "普通"
             try:
-                if getattr(m, "document", None) is not None:
-                    # 直接用 512KB 一块下载（默认只有 128KB，走代理时来回次数多、慢）
+                done = False
+                if fast["on"] and getattr(m, "document", None) is not None and m.file.size:
+                    try:
+                        await fast["fd"].download(m.document, part, m.file.size, sp.cb((t["key"], m.id)))
+                        done, how = True, "多连接"
+                    except Cancelled:
+                        raise
+                    except Exception as e:  # noqa: BLE001  多连接不行就退回普通下载，本次不再尝试
+                        if fast["on"]:
+                            fast["on"] = False
+                            log(f"  ⚠️ 多连接下载不可用（{type(e).__name__}：{str(e)[:80]}），改用普通方式")
+                        part.unlink(missing_ok=True)
+                        sp.bytes[(t["key"], m.id)] = 0
+                if not done and getattr(m, "document", None) is not None:
+                    # 普通方式：512KB 一块（默认只有 128KB，走代理时来回次数多、慢）
                     await client.download_file(m.document, file=str(part), part_size_kb=512,
                                                file_size=m.file.size, progress_callback=sp.cb((t["key"], m.id)))
-                else:
+                elif not done:
                     await client.download_media(m, file=str(part), progress_callback=sp.cb((t["key"], m.id)))
                 part.replace(final)
             except Cancelled:
@@ -209,17 +231,20 @@ async def download_with_client(client, cfg: dict, state: State) -> int:
             sp.finished += 1
             size = (m.file.size or 0) / 1048576
             secs = max(0.1, time.time() - started)
-            log(f"  ✅ {t['title']} #{m.id}  {size:.1f} MB（{size / secs:.1f} MB/s）")
+            log(f"  ✅ {t['title']} #{m.id}  {size:.1f} MB（{size / secs:.1f} MB/s，{how}）")
             sp.report(force=True)
 
-    results = await asyncio.gather(*(one(t) for t in todo), return_exceptions=True)
+    try:
+        results = await asyncio.gather(*(one(t) for t in todo), return_exceptions=True)
+    finally:
+        if fast["fd"]:
+            await fast["fd"].close()
     for r in results:
         if isinstance(r, Cancelled):
             raise r
     secs = max(0.1, time.time() - sp.start)
     got = sum(sp.bytes.values()) / 1048576
-    log(f"📊 共下载 {got:.0f} MB，用时 {secs:.0f} 秒，平均 {got / secs:.1f} MB/s"
-        + ("（已启用 cryptg 加速）" if _has_cryptg() else ""))
+    log(f"📊 共下载 {got:.0f} MB，用时 {secs:.0f} 秒，平均 {got / secs:.1f} MB/s")
     return new_count
 
 

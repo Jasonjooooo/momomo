@@ -180,6 +180,8 @@ td.del button:hover { background: var(--input); color: var(--err); }
     <div class="row"><label>最大</label><input type="number" min="1" data-path="download.max_size_mb"> MB</div>
     <div class="row"><label>同时下载</label><input type="number" min="1" max="5" data-path="download.concurrency"> 个
       <span class="help">2–3 个最合适；太多可能被 Telegram 限速</span></div>
+    <div class="row"><label>多连接下载</label><input type="number" min="0" max="12" data-path="download.connections"> 条连接
+      <span class="help">把每个文件分成小块、用多条连接同时下，单条连接被限速时能快很多；填 0 关闭。出问题会自动改用普通方式</span></div>
   </div>
 </section>
 
