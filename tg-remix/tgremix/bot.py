@@ -15,7 +15,7 @@ from pathlib import Path
 
 from . import ai
 from .config import resolve
-from .runtime import log, ssl_context
+from .runtime import effective_proxy, log, proxy_url, ssl_context
 
 DEFAULT_CATEGORIES = ["搞笑动物", "搞笑", "轻微擦边", "新奇吃瓜"]
 CATEGORY_HINTS = {
@@ -99,12 +99,13 @@ class FilterBot:
         import aiohttp
 
         cfg = self.get_cfg()
-        px = cfg["telegram"].get("proxy") or {}
+        px = effective_proxy(cfg["telegram"])
         ctx = ssl_context()
-        if px.get("host") and px.get("port"):
+        if px:
             from aiohttp_socks import ProxyConnector
 
-            connector = ProxyConnector.from_url(f"{px.get('type') or 'socks5'}://{px['host']}:{int(px['port'])}", ssl=ctx)
+            log(f"🤖 使用代理 {proxy_url(px)}（{px.get('from')}）")
+            connector = ProxyConnector.from_url(proxy_url(px), ssl=ctx)
         else:
             connector = aiohttp.TCPConnector(ssl=ctx)
         return aiohttp.ClientSession(connector=connector, timeout=aiohttp.ClientTimeout(total=70))

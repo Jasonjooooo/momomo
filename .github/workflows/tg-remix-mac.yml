@@ -25,6 +25,8 @@ jobs:
         working-directory: tg-remix
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
       - uses: actions/setup-python@v5
         with:
@@ -48,6 +50,45 @@ jobs:
             --collect-all edge_tts \
             --collect-submodules aiohttp_socks \
             --hidden-import api \
+            --collect-submodules tgremix \
+            --hidden-import csv \
+            --hidden-import sqlite3 \
+            --hidden-import difflib \
+            --hidden-import statistics \
+            --hidden-import hashlib \
+            --hidden-import uuid \
+            --hidden-import html \
+            --hidden-import html.parser \
+            --hidden-import xml.etree.ElementTree \
+            --hidden-import concurrent.futures \
+            --hidden-import base64 \
+            --hidden-import gzip \
+            --hidden-import tarfile \
+            --hidden-import shlex \
+            --hidden-import textwrap \
+            --hidden-import unicodedata \
+            --hidden-import colorsys \
+            --hidden-import fractions \
+            --hidden-import decimal \
+            --hidden-import heapq \
+            --hidden-import bisect \
+            --hidden-import secrets \
+            --hidden-import hmac \
+            --hidden-import platform \
+            --hidden-import webbrowser \
+            --hidden-import queue \
+            --hidden-import pickle \
+            --hidden-import pprint \
+            --hidden-import calendar \
+            --hidden-import zoneinfo \
+            --hidden-import http.cookies \
+            --hidden-import http.cookiejar \
+            --hidden-import email.mime.text \
+            --hidden-import mimetypes \
+            --hidden-import glob \
+            --hidden-import fnmatch \
+            --hidden-import tempfile \
+            --hidden-import string \
             --osx-bundle-identifier com.tgremix.app \
             --icon app/icon.png \
             app/main.py
@@ -58,9 +99,11 @@ jobs:
           cp -R build/ffbin/. "$APP/Contents/Resources/ffbin/"
           find "$APP/Contents/Resources/ffbin" -type f \( -name "ff*" -o -name "*.dylib" \) -exec codesign --force --sign - {} \;
 
+          VER=$(python -c "import re;print(re.search(r'__version__ = \"(.+?)\"', open('tgremix/__init__.py').read()).group(1))")
+          echo "VER=$VER" >> "$GITHUB_ENV"
           PL="$APP/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName TG二创" "$PL" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string TG二创" "$PL"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.2.1" "$PL" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.2.1" "$PL"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VER" "$PL" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $VER" "$PL"
           /usr/libexec/PlistBuddy -c "Add :NSHighResolutionCapable bool true" "$PL" 2>/dev/null || true
 
           codesign --force --deep --sign - "$APP"
@@ -69,6 +112,25 @@ jobs:
 
       - name: 自检（用打包好的应用实际处理一条视频）
         run: dist/TGRemix.app/Contents/MacOS/TGRemix --selftest
+
+      - name: 生成小更新包，并用打包好的应用测试「安装更新 / 坏更新自动回退」
+        run: |
+          APP=dist/TGRemix.app/Contents/MacOS/TGRemix
+          NOTES=$(git log -1 --pretty=%s)
+          python scripts/make_update_zip.py TGRemix-update.zip --notes "$NOTES"
+          python scripts/make_update_zip.py build/upd-new.zip --version 99.0.0
+          python scripts/make_update_zip.py build/upd-broken.zip --version 99.0.1 --break
+
+          export TGREMIX_DATA_ROOT=$(mktemp -d)
+          $APP --install-update build/upd-new.zip
+          OUT=$($APP --print-version); echo "$OUT"
+          echo "$OUT" | grep -q "version=99.0.0 update=True" || { echo "❌ 小更新没有生效"; exit 1; }
+          echo "$OUT" | grep -q ".update/current/code/tgremix" || { echo "❌ 没有加载更新包里的代码"; exit 1; }
+
+          $APP --install-update build/upd-broken.zip
+          OUT=$($APP --print-version); echo "$OUT"
+          echo "$OUT" | grep -q "version=$VER update=False fallback=True" || { echo "❌ 坏更新没有自动回退"; exit 1; }
+          echo "✅ 小更新机制测试通过"
 
       - name: 压缩
         run: |
@@ -80,7 +142,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: TGRemix-mac-arm64
-          path: tg-remix/TGRemix-mac-arm64.zip
+          path: |
+            tg-remix/TGRemix-mac-arm64.zip
+            tg-remix/TGRemix-update.zip
           retention-days: 30
 
       - name: 发布到 Releases
@@ -99,8 +163,11 @@ jobs:
              - 如果提示「已损坏」或没有「打开」按钮：打开「系统设置 → 隐私与安全性」，往下找到「仍要打开」
              - 还不行的话，在「终端」运行：`xattr -cr "/Applications/TG二创.app"`，再双击打开
 
+          **以后更新**：TG二创 打开时会自动检查，只需下载几百 KB 的 `TGRemix-update.zip`，点「立即更新」即可。
+          也可以手动下载 `TGRemix-update.zip`，在 TG二创 左下角点「从文件更新」。
+
           数据（配置、登录、下载、成品）都保存在你的个人文件夹下的「TG二创」文件夹里。
           NOTES
           sed -i '' 's/^          //' notes.md
-          gh release create "$TAG" TGRemix-mac-arm64.zip \
+          gh release create "$TAG" TGRemix-mac-arm64.zip TGRemix-update.zip \
             --title "TG二创 Mac 版（最新）" --notes-file notes.md --target "${{ github.sha }}"

@@ -96,6 +96,11 @@ td.del button:hover { background: var(--input); color: var(--err); }
 .log { background: #0f1115; color: #d7dae0; border-radius: 10px; padding: 12px 14px; height: 340px; overflow-y: auto;
   font: 12.5px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; word-break: break-all; }
 .log .e { color: #ff7b7b; } .log .o { color: #6fdc8c; } .log .w { color: #f0c36a; }
+.banner { display: flex; align-items: center; gap: 12px; background: var(--accent-soft); color: var(--fg);
+  border: 1px solid var(--accent); border-radius: 10px; padding: 10px 14px; margin-bottom: 16px; max-width: 860px; }
+.banner.warn { background: #fff4e5; border-color: #f0a33c; }
+@media (prefers-color-scheme: dark) { .banner.warn { background: #3a2a10; } }
+.banner .grow { flex: 1; }
 .toast { position: fixed; right: 24px; bottom: 24px; background: var(--fg); color: var(--bg); padding: 10px 16px;
   border-radius: 10px; opacity: 0; transition: opacity .2s; pointer-events: none; }
 .toast.show { opacity: .92; }
@@ -113,10 +118,13 @@ td.del button:hover { background: var(--input); color: var(--err); }
     <div>数据文件夹：</div>
     <a id="rootLink" title="打开数据文件夹"></a>
     <div id="ver" style="margin-top:6px"></div>
+    <div style="margin-top:4px"><a id="lnkUpdate">检查更新</a> · <a id="lnkUpdateFile" title="选择我发给你的 TGRemix-update.zip">从文件更新</a></div>
   </div>
 </nav>
 
 <main>
+<div class="banner hidden" id="updBanner"><span class="grow" id="updText"></span>
+  <button class="btn pri" id="btnUpdGo">立即更新</button><button class="btn" id="btnUpdClose">以后再说</button></div>
 <!-- ======================= 运行 ======================= -->
 <section class="page on" id="page-run">
   <h2>运行</h2>
@@ -420,12 +428,18 @@ td.del button:hover { background: var(--input); color: var(--err); }
 
   <div class="card">
     <h3>② 代理 <span class="hint">国内需要</span></h3>
+    <div class="row"><label>方式</label>
+      <select id="pxMode"><option value="auto">自动（推荐）：跟随系统代理 / 自动探测</option><option value="manual">手动填写</option></select>
+      <button class="btn" id="btnPxDetect">重新检测</button></div>
+    <div class="row"><span class="lbl">当前使用</span><span id="pxNow">检测中…</span></div>
+    <div id="pxManual">
     <div class="row"><label>类型</label>
       <select id="pxType"><option value="socks5">SOCKS5</option><option value="http">HTTP</option></select></div>
     <div class="row"><label>地址</label><input type="text" id="pxHost" placeholder="例：127.0.0.1（不用代理就留空）" style="max-width:260px">
-      端口 <input type="number" id="pxPort" placeholder="7890"></div>
-    <p class="help">用 Clash / ClashX / Clash Verge 等：地址填 127.0.0.1，端口一般是 7890（类型选 SOCKS5 或 HTTP 都行）。
-      如果代理软件开了「增强模式 / TUN 模式」，这里可以留空。</p>
+      端口 <input type="number" id="pxPort" placeholder="7897"></div>
+    </div>
+    <p class="help">自动模式会读取 Mac 的系统代理（Clash Verge / ClashX 打开「系统代理」即可），读不到时自动探测常见代理软件的端口。
+      手动填的端口如果没有代理在运行，也会自动改用识别到的代理。代理软件开了「TUN 模式」时不需要代理也能连。</p>
   </div>
 
   <div class="card">
@@ -602,6 +616,8 @@ function fillAccount() {
   $("#apiId").value = tg.api_id || "";
   $("#apiHash").value = String(tg.api_hash || "").includes("换成") ? "" : (tg.api_hash || "");
   const px = tg.proxy || {};
+  $("#pxMode").value = px.host ? "manual" : "auto";
+  $("#pxManual").classList.toggle("hidden", !px.host);
   $("#pxType").value = px.type || "socks5";
   $("#pxHost").value = px.host || "";
   $("#pxPort").value = px.port || "";
@@ -609,9 +625,65 @@ function fillAccount() {
 function readAccount() {
   cfg.telegram.api_id = parseInt($("#apiId").value.trim()) || 0;
   cfg.telegram.api_hash = $("#apiHash").value.trim();
-  cfg.telegram.proxy = { type: $("#pxType").value, host: $("#pxHost").value.trim(), port: parseInt($("#pxPort").value) || 0 };
+  const manual = $("#pxMode").value === "manual";
+  cfg.telegram.proxy = { auto: !manual, type: $("#pxType").value,
+    host: manual ? $("#pxHost").value.trim() : "", port: manual ? (parseInt($("#pxPort").value) || 0) : 0 };
 }
-["#apiId", "#apiHash", "#pxType", "#pxHost", "#pxPort"].forEach((s) => $(s).addEventListener("change", () => { readAccount(); save(); }));
+["#apiId", "#apiHash", "#pxType", "#pxHost", "#pxPort"].forEach((s) => $(s).addEventListener("change", () => { readAccount(); save(); detectProxy(); }));
+$("#pxMode").addEventListener("change", async () => {
+  $("#pxManual").classList.toggle("hidden", $("#pxMode").value !== "manual");
+  readAccount(); await save(true); detectProxy();
+});
+$("#btnPxDetect").addEventListener("click", () => detectProxy());
+async function detectProxy() {
+  $("#pxNow").textContent = "检测中…";
+  const r = await api.detect_proxy();
+  $("#pxNow").textContent = r.using ? `${r.using}（${r.from}）` : "没有检测到代理（如果代理软件开了 TUN 模式，可以不用代理）";
+}
+
+// ---------- 更新 ----------
+let updInfo = null;
+function banner(text, btn, warn = false) {
+  $("#updText").textContent = text;
+  $("#btnUpdGo").textContent = btn || "";
+  $("#btnUpdGo").classList.toggle("hidden", !btn);
+  $("#updBanner").classList.toggle("warn", warn);
+  $("#updBanner").classList.remove("hidden");
+}
+async function checkUpdate(manual) {
+  if (manual) toast("正在检查更新…");
+  const r = await api.check_update();
+  if (!r.ok) { if (manual) banner("检查更新失败：" + r.error, "", true); return; }
+  if (r.available) {
+    updInfo = r;
+    banner(`发现新版本 ${r.version}（当前 ${r.current}）${r.notes ? "：" + r.notes : ""}。更新包只有几百 KB。`, "立即更新");
+  } else if (r.need_full) {
+    updInfo = { full: true, url: r.url };
+    banner(`新版本 ${r.version} 加了新组件，需要下载一次完整安装包。`, "打开下载页", true);
+  } else if (manual) {
+    toast(`已经是最新版本 ${r.current}`);
+  }
+}
+$("#lnkUpdate").addEventListener("click", () => checkUpdate(true));
+$("#lnkUpdateFile").addEventListener("click", async () => {
+  const r = await api.install_update_file();
+  if (r.cancel) return;
+  if (!r.ok) return banner("安装更新失败：" + r.error, "", true);
+  updInfo = { restart: true };
+  banner(`已安装 ${r.version}，重启 TG二创 后生效。`, "立即重启");
+});
+$("#btnUpdGo").addEventListener("click", async (e) => {
+  if (!updInfo) return;
+  if (updInfo.full) return api.open_url(updInfo.url);
+  if (updInfo.restart) return api.restart_app();
+  e.target.disabled = true; e.target.textContent = "正在安装…";
+  const r = await api.install_update();
+  e.target.disabled = false;
+  if (!r.ok) return banner("安装更新失败：" + r.error, "", true);
+  updInfo = { restart: true };
+  banner(`已安装 ${r.version}，重启 TG二创 后生效。`, "立即重启");
+});
+$("#btnUpdClose").addEventListener("click", () => $("#updBanner").classList.add("hidden"));
 
 function setLogin(ok, me) {
   authorized = ok;
@@ -869,6 +941,9 @@ async function init() {
   bindForm(); bindBot(); renderChannels(); renderStickers(); renderTexts(); fillAccount(); renderTips();
   setInterval(poll, 700); poll();
   setInterval(pollBot, 2000); pollBot();
+  detectProxy();
+  if (info.update_fallback) banner("上次安装的更新有问题，已自动退回可用的版本。可以点左下角「检查更新」重新安装。", "", true);
+  setTimeout(() => checkUpdate(false), 3000);  // 打开后自动检查一次更新
   checkLogin();
 }
 window.addEventListener("pywebviewready", init);

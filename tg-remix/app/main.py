@@ -6,6 +6,8 @@
 """
 from __future__ import annotations
 
+import json
+import os
 import sys
 from pathlib import Path
 
@@ -14,7 +16,61 @@ if not getattr(sys, "frozen", False):
     sys.path.insert(0, str(HERE.parent))  # 开发模式：能 import tgremix
 
 BASE = Path(getattr(sys, "_MEIPASS", HERE))
-DATA_ROOT = Path.home() / "TG二创"  # 配置、登录凭证、下载和成品都放在这里
+# 配置、登录凭证、下载和成品都放在这里（TGREMIX_DATA_ROOT 仅测试用）
+DATA_ROOT = Path(os.environ.get("TGREMIX_DATA_ROOT") or (Path.home() / "TG二创"))
+
+# 大包（启动器 + Python 运行环境 + 依赖 + ffmpeg）的版本号。
+# 只有改了本文件、依赖或 ffmpeg 时才加 1；小更新包里的 min_base 大于它时，需要下载完整安装包。
+BASE_BUILD = 3
+
+UPDATE_STATE = {"active": False, "version": "", "fallback": ""}
+
+
+def _purge_modules() -> None:
+    for name in list(sys.modules):
+        if name == "api" or name == "tgremix" or name.startswith("tgremix."):
+            del sys.modules[name]
+
+
+def load_code():
+    """
+    加载功能代码：优先用 <数据文件夹>/.update/current 里的小更新（版本更新且兼容时），
+    加载失败就自动退回大包自带的版本。返回 (Api 类, 界面目录)。
+    """
+    import tgremix
+
+    builtin = tgremix.__version__
+    cur = DATA_ROOT / ".update" / "current"
+    code = cur / "code"
+    try:
+        info = json.loads((cur / "version.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        info = None
+    if info and int(info.get("min_base", 0)) <= BASE_BUILD and \
+            _vt(info.get("version", "0")) > _vt(builtin) and (code / "tgremix" / "__init__.py").exists():
+        _purge_modules()
+        sys.path.insert(0, str(code))
+        try:
+            import tgremix as t2  # noqa: F401
+            from api import Api
+
+            UPDATE_STATE.update(active=True, version=t2.__version__)
+            return Api, code / "ui"
+        except Exception as e:  # noqa: BLE001  更新包有问题：退回自带版本
+            UPDATE_STATE["fallback"] = f"{type(e).__name__}: {e}"
+            sys.path.remove(str(code))
+            _purge_modules()
+            try:
+                cur.rename(cur.parent / "broken")
+            except OSError:
+                pass
+    from api import Api
+
+    return Api, BASE / "ui"
+
+
+def _vt(v: str) -> tuple:
+    return tuple(int(p) if p.isdigit() else 0 for p in str(v).split("."))
 
 
 def bundled_ffmpeg_dir() -> Path | None:
@@ -154,15 +210,29 @@ def main() -> None:
     ensure_ca_env()
     if "--selftest" in sys.argv:
         sys.exit(selftest())
+    if "--install-update" in sys.argv:  # 测试用：命令行安装小更新包
+        from tgremix import updater
+
+        info = updater.install(Path(sys.argv[sys.argv.index("--install-update") + 1]), DATA_ROOT, BASE_BUILD)
+        print("installed", info.get("version"))
+        return
+    if "--print-version" in sys.argv:  # 测试用：打印实际加载的版本
+        Api, ui = load_code()
+        import tgremix
+
+        print(f"version={tgremix.__version__} update={UPDATE_STATE['active']} "
+              f"fallback={bool(UPDATE_STATE['fallback'])} file={tgremix.__file__} ui={ui}")
+        return
 
     import webview
 
-    from api import Api  # noqa: E402  （app 目录在 sys.path 里）
-
+    Api, ui_dir = load_code()
     api = Api(DATA_ROOT, bundled_ffmpeg_dir())
+    api._base_build = BASE_BUILD
+    api._update_state = UPDATE_STATE
     window = webview.create_window(
         "TG 二创",
-        url=str(BASE / "ui" / "index.html"),
+        url=str(ui_dir / "index.html"),
         js_api=api,
         width=1120,
         height=780,

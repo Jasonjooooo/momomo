@@ -35,15 +35,16 @@ def _safe_name(s: str) -> str:
 
 
 def proxy_settings(tg: dict):
-    """config 里的代理设置 → Telethon 的 proxy 参数"""
-    px = tg.get("proxy") or {}
-    host, port = str(px.get("host") or "").strip(), px.get("port")
-    if not host or not port:
+    """代理设置（手动 / 系统代理 / 自动探测）→ Telethon 的 proxy 参数"""
+    from .runtime import effective_proxy
+
+    px = effective_proxy(tg)
+    if not px:
         return None
     ptype = str(px.get("type") or "socks5").lower()
     if ptype not in ("socks5", "socks4", "http"):
         ptype = "socks5"
-    return (ptype, host, int(port))
+    return (ptype, px["host"], int(px["port"]))
 
 
 def make_client(cfg: dict):

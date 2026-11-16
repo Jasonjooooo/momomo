@@ -8,7 +8,7 @@ import yaml
 
 DEFAULTS = {
     "telegram": {"api_id": 0, "api_hash": "", "session": "tg",
-                 "proxy": {"type": "socks5", "host": "", "port": 0}},
+                 "proxy": {"auto": True, "type": "socks5", "host": "", "port": 0}},
     "channels": [],
     "download": {"min_duration": 5, "max_duration": 300, "max_size_mb": 500},
     "process": {
