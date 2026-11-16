@@ -147,3 +147,66 @@ async def build_todo(client, peer, ids: list, cfg: dict, dl_root, state) -> tupl
                          "link": link, "kind": kind, "tags": tags})
     state.save()
     return todo, texts
+
+
+# ---------------------------------------------------------------- 视频预览（前几秒）
+PREVIEW_FULL_LIMIT = 25 * 1024 * 1024  # 开头一段播不了时，这么大以内的整个下载再截
+
+
+def _cut_preview(src: str, out: str, seconds: int) -> bool:
+    """用 ffmpeg 截前几秒、缩到 540 宽，返回是否成功（输入可以是只下了开头的残缺文件）"""
+    import subprocess
+
+    from .runtime import ffmpeg_bin
+
+    cmd = [ffmpeg_bin("ffmpeg"), "-y", "-hide_banner", "-loglevel", "error", "-t", str(seconds), "-i", src,
+           "-vf", "scale='min(540,iw)':-2", "-c:v", "libx264", "-preset", "veryfast", "-crf", "28",
+           "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "96k", "-movflags", "+faststart", out]
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=60)
+    except Exception:  # noqa: BLE001
+        return False
+    try:
+        import os
+
+        return r.returncode == 0 and os.path.getsize(out) > 2000
+    except OSError:
+        return False
+
+
+async def video_preview(client, peer, msg_id: int, workdir, seconds: int = 8) -> dict:
+    """下载视频开头一段，截出前几秒的小视频（data URL），不用下载整个视频"""
+    from pathlib import Path
+
+    entity = await client.get_entity(_normalize_channel(peer))
+    m = await client.get_messages(entity, ids=int(msg_id))
+    if not m or _kind_of(m) != "video":
+        return {"error": "不是视频"}
+    size = int(getattr(m.file, "size", 0) or 0)
+    dur = float(getattr(m.file, "duration", 0) or 0)
+    chunk = 512 * 1024
+    # 按平均码率估算前几秒需要多少字节，再多留一些给文件头
+    need = int(size / dur * (seconds + 2) * 1.3) + 512 * 1024 if dur > 0 else 4 * 1024 * 1024
+    need = max(1024 * 1024, min(need, 16 * 1024 * 1024, size or need))
+    work = Path(workdir)
+    work.mkdir(parents=True, exist_ok=True)
+    part, out = work / f"pv_{msg_id}.part.mp4", work / f"pv_{msg_id}.mp4"
+    try:
+        with open(part, "wb") as f:
+            async for b in client.iter_download(m.document, request_size=chunk, limit=-(-need // chunk), file_size=size):
+                f.write(b)
+        ok = await asyncio.to_thread(_cut_preview, str(part), str(out), seconds)
+        partial = True
+        if not ok and size and size <= PREVIEW_FULL_LIMIT and need < size:
+            # 这个视频的索引在文件末尾，只下开头播不了 → 整个下载再截
+            await client.download_media(m, file=str(part))
+            ok = await asyncio.to_thread(_cut_preview, str(part), str(out), seconds)
+            partial = False
+        if not ok:
+            return {"error": "这个视频不支持边下边看，请点「下载并播放」"}
+        data = out.read_bytes()
+        return {"video": "data:video/mp4;base64," + base64.b64encode(data).decode(), "partial": partial,
+                "fetched_mb": round((need if partial else size) / 1048576, 1)}
+    finally:
+        part.unlink(missing_ok=True)
+        out.unlink(missing_ok=True)

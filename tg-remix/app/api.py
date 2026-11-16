@@ -153,15 +153,6 @@ class Api:
         runtime.set_log_handler(self._on_log)
         (root / "logs").mkdir(exist_ok=True)
         self._logfile = root / "logs" / f"{datetime.now():%Y-%m-%d}.log"
-        from tgremix.bot import FilterBot
-
-        self._auto_pending = False
-        self._bot = FilterBot(root, self._cfg, on_downloaded=self._on_bot_download)
-        try:
-            if (self._cfg().get("bot") or {}).get("autostart"):
-                self._bot.start()
-        except Exception:  # noqa: BLE001
-            pass
 
     # ------------------------------------------------------------ 内部
     def _on_log(self, msg: str, is_progress: bool) -> None:
@@ -217,8 +208,6 @@ class Api:
                 self._running = False
                 self._progress = ""
                 self._status = "空闲"
-            if self._auto_pending:  # 刚才在忙时机器人又下载了新视频 → 接着自动二创
-                threading.Timer(1.0, self._kick_auto).start()
 
     def _set_status(self, s: str) -> None:
         with self._lock:
@@ -245,7 +234,7 @@ class Api:
     def save_config(self, data: dict) -> dict:
         try:
             cfg = self._cfg()
-            for k in ("telegram", "channels", "download", "process", "bot"):
+            for k in ("telegram", "channels", "download", "process"):
                 if k in data:
                     cfg[k] = data[k]
             self._write_cfg(cfg)
@@ -427,6 +416,26 @@ class Api:
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "error": _friendly(e)}
 
+    def browse_video_preview(self, peer_id: str, msg_id: int) -> dict:
+        """视频前 8 秒预览（只下载开头一小段），有缓存"""
+        from tgremix import browse
+
+        cache = self.__dict__.setdefault("_vpv", {})
+        key = f"{peer_id}:{msg_id}"
+        if key in cache:
+            return cache[key]
+        try:
+            client = self._tg.run(self._tg.ensure(self._cfg()), timeout=40)
+            r = {"ok": True, **self._tg.run(browse.video_preview(client, peer_id, msg_id, self._root / ".preview"),
+                                             timeout=180)}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": _friendly(e)}
+        if r.get("video"):
+            if len(cache) > 20:  # 只缓存最近 20 个
+                cache.pop(next(iter(cache)))
+            cache[key] = r
+        return r
+
     def browse_download(self, peer_id: str, ids: list, play: bool = False) -> dict:
         """下载选中的内容（后台进行，进度在「运行」页日志里）；play=True 时下完自动打开"""
         if not ids:
@@ -545,137 +554,6 @@ class Api:
             return {"ok": False, "error": str(e)}
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "error": _friendly(e)}
-
-    # ------------------------------------------------------------ 自动二创
-    def _on_bot_download(self, path: str) -> None:
-        """机器人下载好一个视频（在机器人线程里调用）"""
-        if not (self._cfg().get("bot") or {}).get("auto_process", True):
-            return
-        self._auto_pending = True
-        threading.Timer(3.0, self._kick_auto).start()  # 稍等几秒，同一批的视频一起处理
-
-    def _kick_auto(self) -> None:
-        if not self._auto_pending:
-            return
-        with self._lock:
-            busy = self._running
-        if busy:
-            return  # 正在处理别的，结束后会自动再来
-        self._start_thread(self._auto_work)
-
-    def _auto_work(self) -> None:
-        from tgremix.processor import process_all
-
-        self._auto_pending = False
-        cfg = self._cfg()
-        state = State(self._root / "state.json")
-        self._set_status("自动二创中…")
-        log("—— 自动二创：处理机器人下载的新视频 ——")
-        send_back = (cfg.get("bot") or {}).get("send_back", True)
-
-        def after(job, out):
-            if send_back and job.meta.get("channel") == "机器人":
-                parts = [job.meta.get("_title") or "", f"#{job.meta['category']}" if job.meta.get("category") else "",
-                         f"来源：{job.meta.get('channel_title')}" if job.meta.get("channel_title") else "",
-                         job.meta.get("link") or ""]
-                self._bot.send_result(out, "🎬 二创完成\n" + "\n".join(x for x in parts if x))
-
-        try:
-            process_all(cfg, state, on_done=after)
-        finally:
-            state.save()
-
-    # ------------------------------------------------------------ 机器人
-    def bot_start(self) -> dict:
-        self._bot.start()
-        time.sleep(0.3)
-        return {"ok": True}
-
-    def bot_stop(self) -> dict:
-        self._bot.stop()
-        return {"ok": True}
-
-    def bot_info(self) -> dict:
-        return self._bot.info()
-
-    def bot_reset_owner(self) -> dict:
-        """换主人：下一个给机器人发 /start 的人成为主人"""
-        self._bot.state["owner_id"] = None
-        self._bot.state["owner_name"] = ""
-        self._bot.save()
-        return {"ok": True}
-
-    # ------------------------------------------------------------ 更新
-    def check_update(self) -> dict:
-        """从 GitHub 下载小更新包（几百 KB），比较版本"""
-        from tgremix import updater
-        from tgremix.runtime import effective_proxy
-
-        cfg = self._cfg()
-        incoming = updater.update_dir(self._root) / "incoming.zip"
-        try:
-            updater.download(incoming, effective_proxy(cfg["telegram"]))
-            info = updater.read_package(incoming)
-        except updater.UpdateError as e:
-            return {"ok": False, "error": str(e)}
-        latest = info.get("version", "0")
-        res = {"ok": True, "current": APP_VERSION, "version": latest, "notes": info.get("notes", "")}
-        if updater.vtuple(latest) <= updater.vtuple(APP_VERSION):
-            incoming.unlink(missing_ok=True)
-            return {**res, "available": False}
-        if int(info.get("min_base", 0)) > int(self._base_build or 0):
-            return {**res, "available": False, "need_full": True, "url": updater.FULL_URL}
-        return {**res, "available": True}
-
-    def install_update(self) -> dict:
-        from tgremix import updater
-
-        incoming = updater.update_dir(self._root) / "incoming.zip"
-        if not incoming.exists():
-            return {"ok": False, "error": "请先检查更新"}
-        try:
-            info = updater.install(incoming, self._root, int(self._base_build or 0))
-        except updater.UpdateError as e:
-            return {"ok": False, "error": str(e)}
-        incoming.unlink(missing_ok=True)
-        log(f"⬆️ 已安装更新 {info.get('version')}，重启 TG二创 后生效")
-        return {"ok": True, "version": info.get("version")}
-
-    def install_update_file(self) -> dict:
-        """从文件安装小更新包（比如我直接发给你的 TGRemix-update.zip）"""
-        from tgremix import updater
-
-        p = self.pick("update")
-        if not p:
-            return {"ok": False, "cancel": True}
-        try:
-            info = updater.install(Path(p), self._root, int(self._base_build or 0))
-        except updater.UpdateError as e:
-            return {"ok": False, "error": str(e)}
-        log(f"⬆️ 已安装更新 {info.get('version')}，重启 TG二创 后生效")
-        return {"ok": True, "version": info.get("version")}
-
-    def restart_app(self) -> dict:
-        """重新打开 TG二创（让更新生效）"""
-        import os
-
-        if getattr(sys, "frozen", False) and sys.platform == "darwin":
-            bundle = Path(sys.executable).resolve().parents[2]
-            subprocess.Popen(["/bin/sh", "-c", f'sleep 1; open -n "{bundle}"'])
-            threading.Timer(0.3, lambda: os._exit(0)).start()
-            return {"ok": True}
-        return {"ok": False, "error": "请手动关闭再打开 TG二创"}
-
-    # ------------------------------------------------------------ 代理
-    def detect_proxy(self) -> dict:
-        from tgremix.runtime import effective_proxy, probe_local_proxy, proxy_url, system_proxy
-
-        cfg = self._cfg()
-        px = effective_proxy(cfg["telegram"])
-        return {
-            "using": proxy_url(px) or "", "from": (px or {}).get("from", ""),
-            "system": proxy_url(system_proxy()) or "", "probe": proxy_url(probe_local_proxy()) or "",
-        }
 
     def stop(self) -> dict:
         stop_event.set()
