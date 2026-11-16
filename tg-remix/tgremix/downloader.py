@@ -59,31 +59,71 @@ def make_client(cfg: dict):
     )
 
 
-class _Progress:
-    def __init__(self, label: str):
-        self.label = label
-        self.last = 0.0
+class _Speed:
+    """汇总所有并行下载的进度和速度"""
 
-    def __call__(self, done: int, total: int) -> None:
-        check_stop()  # 点了停止就中断下载
+    def __init__(self, total: int):
+        self.total = total
+        self.finished = 0
+        self.bytes = {}  # 每个文件已下载的字节数
+        self.start = time.time()
+        self.last = 0.0
+        self.window = []  # (时间, 总字节)，用来算最近几秒的速度
+        self.parallel = 1
+
+    def cb(self, key):
+        def _cb(done: int, size: int) -> None:
+            check_stop()  # 点了停止就中断下载
+            self.bytes[key] = done
+            self.report()
+        return _cb
+
+    def report(self, force: bool = False) -> None:
         now = time.time()
-        if now - self.last < 0.5 and done < total:
+        if not force and now - self.last < 0.5:
             return
         self.last = now
-        pct = done * 100 / total if total else 0
-        progress(f"    {self.label} 下载中 {pct:5.1f}%  {done / 1048576:.1f}/{total / 1048576:.1f} MB")
+        got = sum(self.bytes.values())
+        self.window.append((now, got))
+        self.window = [w for w in self.window if now - w[0] <= 5]
+        t0, b0 = self.window[0]
+        speed = (got - b0) / (now - t0) / 1048576 if now > t0 else 0
+        active = self.total - self.finished
+        progress(f"    已完成 {self.finished}/{self.total} 个 · 正在下载 {min(active, self.parallel)} 个 · "
+                 f"{speed:.1f} MB/s · 共 {got / 1048576:.0f} MB")
+
+
+def _video_ok(m, rules, keywords, exclude, text) -> str | None:
+    dur = m.file.duration or 0
+    size_mb = (m.file.size or 0) / 1048576
+    if dur and dur < rules["min_duration"]:
+        return f"太短（{dur:.0f} 秒）"
+    if dur and dur > rules["max_duration"]:
+        return f"太长（{dur:.0f} 秒）"
+    if size_mb > rules["max_size_mb"]:
+        return f"太大（{size_mb:.0f} MB）"
+    if keywords and not any(k in text for k in keywords):
+        return "不含关键词"
+    if any(k in text for k in exclude):
+        return "含排除词"
+    return None
 
 
 async def download_with_client(client, cfg: dict, state: State) -> int:
-    """用已经登录的 client 下载所有频道的新视频，返回新下载的数量"""
+    """
+    用已经登录的 client 下载所有频道的新视频，返回新下载的数量。
+    先把各频道要下载的视频列出来，再并行下载（默认同时 3 个，每次请求 512KB）。
+    """
     if not cfg["channels"]:
         raise UserError("还没有添加任何频道")
 
     dl_root = resolve(cfg, cfg["paths"]["downloads"])
     dl_root.mkdir(parents=True, exist_ok=True)
     rules = cfg["download"]
-    total_new = 0
+    parallel = max(1, min(5, int(rules.get("concurrency") or 3)))
 
+    # ---------- 第 1 步：列出要下载的视频 ----------
+    todo = []
     for ch in cfg["channels"]:
         check_stop()
         raw = ch.get("channel") if isinstance(ch, dict) else ch
@@ -95,80 +135,100 @@ async def download_with_client(client, cfg: dict, state: State) -> int:
         except Exception as e:  # noqa: BLE001
             log(f"❌ 找不到频道 {raw}：{e}")
             continue
-
         username = getattr(entity, "username", None)
         key = username or str(entity.id)
         title = getattr(entity, "title", key)
-        log(f"📺 {title}（{key}）")
-
         limit = int(opts.get("limit") or 20)
         keywords = [k for k in (opts.get("keywords") or []) if k]
         exclude = [k for k in (opts.get("exclude") or []) if k]
 
         msgs = [m async for m in client.iter_messages(entity, limit=limit)]
-        # 相册（多图/多视频）的文字只在其中一条消息上
         group_text = {m.grouped_id: m.message for m in msgs if m.grouped_id and m.message}
-
         ch_dir = dl_root / _safe_name(key)
         ch_dir.mkdir(exist_ok=True)
-        found = 0
+        n_new = n_skip = 0
         for m in reversed(msgs):  # 从旧到新
-            check_stop()
             if not _is_video(m) or state.is_downloaded(key, m.id):
                 continue
-            found += 1
             text = m.message or group_text.get(m.grouped_id, "") or ""
-            dur = m.file.duration or 0
-            size_mb = (m.file.size or 0) / 1048576
-            reason = None
-            if dur and dur < rules["min_duration"]:
-                reason = f"太短（{dur:.0f} 秒）"
-            elif dur and dur > rules["max_duration"]:
-                reason = f"太长（{dur:.0f} 秒）"
-            elif size_mb > rules["max_size_mb"]:
-                reason = f"太大（{size_mb:.0f} MB）"
-            elif keywords and not any(k in text for k in keywords):
-                reason = "不含关键词"
-            elif any(k in text for k in exclude):
-                reason = "含排除词"
+            reason = _video_ok(m, rules, keywords, exclude, text)
             if reason:
-                log(f"  ⏭ #{m.id} 跳过：{reason}")
+                log(f"  ⏭ {title} #{m.id} 跳过：{reason}")
                 state.mark_downloaded(key, m.id)
+                n_skip += 1
                 continue
+            link = f"https://t.me/{username}/{m.id}" if username else f"https://t.me/c/{entity.id}/{m.id}"
+            todo.append({"m": m, "key": key, "title": title, "dir": ch_dir, "text": text, "link": link})
+            n_new += 1
+        log(f"📺 {title}（{key}）：{n_new} 个新视频" + (f"，跳过 {n_skip} 个" if n_skip else ""))
+    state.save()
+    if not todo:
+        log("没有新视频")
+        return 0
 
+    # ---------- 第 2 步：并行下载 ----------
+    total_mb = sum((t["m"].file.size or 0) for t in todo) / 1048576
+    log(f"⬇️ 开始下载 {len(todo)} 个视频，共 {total_mb:.0f} MB，同时下载 {parallel} 个")
+    sp = _Speed(len(todo))
+    sp.parallel = parallel
+    sem = asyncio.Semaphore(parallel)
+    new_count = 0
+
+    async def one(t) -> None:
+        nonlocal new_count
+        m = t["m"]
+        async with sem:
+            check_stop()
             ext = m.file.ext or ".mp4"
-            final = ch_dir / f"{m.id}{ext}"
-            part = ch_dir / f"{m.id}.part{ext}"
-            log(f"  ⬇️ #{m.id}  {dur:.0f} 秒  {size_mb:.1f} MB")
+            final = t["dir"] / f"{m.id}{ext}"
+            part = t["dir"] / f"{m.id}.part{ext}"
+            started = time.time()
             try:
-                await client.download_media(m, file=str(part), progress_callback=_Progress(f"#{m.id}"))
+                if getattr(m, "document", None) is not None:
+                    # 直接用 512KB 一块下载（默认只有 128KB，走代理时来回次数多、慢）
+                    await client.download_file(m.document, file=str(part), part_size_kb=512,
+                                               file_size=m.file.size, progress_callback=sp.cb((t["key"], m.id)))
+                else:
+                    await client.download_media(m, file=str(part), progress_callback=sp.cb((t["key"], m.id)))
                 part.replace(final)
             except Cancelled:
                 part.unlink(missing_ok=True)
                 raise
             except Exception as e:  # noqa: BLE001
-                log(f"  ❌ #{m.id} 下载失败：{e}")
+                log(f"  ❌ {t['title']} #{m.id} 下载失败：{type(e).__name__} {e}")
                 part.unlink(missing_ok=True)
-                continue
-
-            link = f"https://t.me/{username}/{m.id}" if username else f"https://t.me/c/{entity.id}/{m.id}"
-            meta = {
-                "channel": key,
-                "channel_title": title,
-                "id": m.id,
-                "date": m.date.isoformat() if m.date else "",
-                "text": text,
-                "link": link,
-                "file": final.name,
-            }
+                sp.finished += 1
+                return
+            meta = {"channel": t["key"], "channel_title": t["title"], "id": m.id,
+                    "date": m.date.isoformat() if m.date else "", "text": t["text"], "link": t["link"],
+                    "file": final.name}
             final.with_suffix(".json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
-            state.mark_downloaded(key, m.id)
+            state.mark_downloaded(t["key"], m.id)
             state.save()
-            total_new += 1
-        if not found:
-            log("  没有新视频")
-        state.save()
-    return total_new
+            new_count += 1
+            sp.finished += 1
+            size = (m.file.size or 0) / 1048576
+            secs = max(0.1, time.time() - started)
+            log(f"  ✅ {t['title']} #{m.id}  {size:.1f} MB（{size / secs:.1f} MB/s）")
+            sp.report(force=True)
+
+    results = await asyncio.gather(*(one(t) for t in todo), return_exceptions=True)
+    for r in results:
+        if isinstance(r, Cancelled):
+            raise r
+    secs = max(0.1, time.time() - sp.start)
+    got = sum(sp.bytes.values()) / 1048576
+    log(f"📊 共下载 {got:.0f} MB，用时 {secs:.0f} 秒，平均 {got / secs:.1f} MB/s"
+        + ("（已启用 cryptg 加速）" if _has_cryptg() else ""))
+    return new_count
+
+
+def _has_cryptg() -> bool:
+    try:
+        import cryptg  # noqa: F401
+        return True
+    except Exception:  # noqa: BLE001
+        return False
 
 
 async def _download(cfg: dict, state: State) -> int:

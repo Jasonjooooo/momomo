@@ -25,6 +25,7 @@ def main() -> None:
     ap.add_argument("--notes", default="")
     ap.add_argument("--version")
     ap.add_argument("--break", dest="broken", action="store_true")
+    ap.add_argument("--vendor", help="把这个目录里的第三方包（如 cryptg）一起放进更新包")
     a = ap.parse_args()
 
     init = (ROOT / "tgremix" / "__init__.py").read_text(encoding="utf-8")
@@ -48,6 +49,12 @@ def main() -> None:
         for f in sorted((ROOT / "app" / "ui").rglob("*")):
             if f.is_file():
                 z.write(f, f"code/ui/{f.relative_to(ROOT / 'app' / 'ui')}")
+        if a.vendor:
+            vd = Path(a.vendor)
+            for f in sorted(vd.rglob("*")):
+                rel = f.relative_to(vd)
+                if f.is_file() and ".dist-info" not in str(rel) and "__pycache__" not in str(rel):
+                    z.write(f, f"code/{rel}")
     print(f"{out}  版本 {version}  需要大包 ≥ {base}  {out.stat().st_size / 1024:.0f} KB")
 
 

@@ -220,8 +220,14 @@ def main() -> None:
         Api, ui = load_code()
         import tgremix
 
+        try:
+            import cryptg
+
+            cg = f"yes:{cryptg.__file__}"
+        except Exception as e:  # noqa: BLE001
+            cg = f"no:{type(e).__name__}"
         print(f"version={tgremix.__version__} update={UPDATE_STATE['active']} "
-              f"fallback={bool(UPDATE_STATE['fallback'])} file={tgremix.__file__} ui={ui}")
+              f"fallback={bool(UPDATE_STATE['fallback'])} file={tgremix.__file__} ui={ui} cryptg={cg}")
         return
 
     import webview

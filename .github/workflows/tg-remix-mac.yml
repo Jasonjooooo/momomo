@@ -134,8 +134,11 @@ jobs:
         run: |
           APP=dist/TGRemix.app/Contents/MacOS/TGRemix
           NOTES=$(git log -1 --pretty=%s)
-          python scripts/make_update_zip.py TGRemix-update.zip --notes "$NOTES"
-          python scripts/make_update_zip.py build/upd-new.zip --version 99.0.0
+          # 加速组件 cryptg 放进小更新包（让旧的完整包也能用上，不必重新下载 75MB）
+          pip download cryptg --only-binary=:all: --no-deps -d build/wheels
+          mkdir -p build/vendor && unzip -o -q build/wheels/cryptg-*.whl -d build/vendor
+          python scripts/make_update_zip.py TGRemix-update.zip --notes "$NOTES" --vendor build/vendor
+          python scripts/make_update_zip.py build/upd-new.zip --version 99.0.0 --vendor build/vendor
           python scripts/make_update_zip.py build/upd-broken.zip --version 99.0.1 --break
 
           export TGREMIX_DATA_ROOT=$(mktemp -d)
@@ -143,6 +146,7 @@ jobs:
           OUT=$($APP --print-version); echo "$OUT"
           echo "$OUT" | grep -q "version=99.0.0 update=True" || { echo "❌ 小更新没有生效"; exit 1; }
           echo "$OUT" | grep -q ".update/current/code/tgremix" || { echo "❌ 没有加载更新包里的代码"; exit 1; }
+          echo "$OUT" | grep -q "cryptg=yes:.*\.update/current/code/cryptg" || { echo "❌ 没有从更新包加载 cryptg 加速组件"; exit 1; }
 
           $APP --install-update build/upd-broken.zip
           OUT=$($APP --print-version); echo "$OUT"
