@@ -44,7 +44,7 @@ save_cache() {
     gh release create "$CACHE_TAG" --title "TG二创 打包用的 ffmpeg（自动保存，勿删）" \
       --notes "打包流程自动保存的 arm64 ffmpeg/ffprobe，已通过功能检查。删除后下次打包会重新获取。" >/dev/null; } &&
   gh release upload "$CACHE_TAG" "/tmp/$CACHE_FILE" --clobber >/dev/null &&
-  echo "💾 已把这份 ffmpeg 保存到仓库 Releases（$CACHE_TAG）"
+  echo "💾 已把这份 ffmpeg 保存到仓库 Releases（${CACHE_TAG}）"
 }
 
 from_riedl() {
