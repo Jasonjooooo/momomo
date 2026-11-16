@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import copy
 import subprocess
 import sys
@@ -39,6 +40,9 @@ class _TG:
         self.client = None
         self.key = None
         self.phone = ""
+        self.code_sent_at = 0.0
+        self.qr_state: dict = {"state": "idle"}
+        self.qr_cancel = False
 
     def run(self, coro, timeout: float | None = None):
         return asyncio.run_coroutine_threadsafe(coro, self.loop).result(timeout)
@@ -57,6 +61,32 @@ class _TG:
         if not self.client.is_connected():
             await self.client.connect()
         return self.client
+
+    async def qr_flow(self, client) -> None:
+        """扫码登录：一直等用户扫码；二维码过期就自动换新的，最多等约 5 分钟"""
+        from telethon.errors import SessionPasswordNeededError
+
+        from tgremix.qr import to_svg
+
+        try:
+            qr = await client.qr_login()
+            for _ in range(10):
+                self.qr_state = {"state": "waiting", "svg": to_svg(qr.url, scale=6)}
+                left = (qr.expires - __import__("datetime").datetime.now(tz=qr.expires.tzinfo)).total_seconds()
+                try:
+                    await qr.wait(timeout=max(5.0, left - 1))
+                    self.qr_state = {"state": "done"}
+                    return
+                except asyncio.TimeoutError:
+                    if self.qr_cancel:
+                        self.qr_state = {"state": "idle"}
+                        return
+                    await qr.recreate()
+            self.qr_state = {"state": "expired"}
+        except SessionPasswordNeededError:
+            self.qr_state = {"state": "need_password"}
+        except Exception as e:  # noqa: BLE001
+            self.qr_state = {"state": "error", "error": _friendly(e)}
 
     async def drop(self):
         if self.client is not None:
@@ -79,6 +109,13 @@ def _friendly(e: BaseException) -> str:
         "PasswordHashInvalidError": "两步验证密码不对",
         "ApiIdInvalidError": "api_id 或 api_hash 不对，请到 my.telegram.org 核对",
         "FloodWaitError": "操作太频繁，Telegram 要求等待一段时间后再试",
+        "SendCodeUnavailableError": "这个号码能用的验证码发送方式都用完了（多半是「发送验证码」点了好几次）。"
+                                    "请等几个小时再试，或者改用上面的「扫码登录」，不需要验证码",
+        "PhoneNumberUnoccupiedError": "这个手机号还没有注册 Telegram",
+        "PhoneNumberFloodError": "这个号码请求验证码太频繁了，请过几个小时再试，或改用「扫码登录」",
+        "AuthRestartError": "登录流程需要重新开始，请重新发送验证码或改用扫码登录",
+        "PhoneCodeEmptyError": "请填写验证码",
+        "AuthTokenExpiredError": "二维码过期了，请重新点「扫码登录」",
     }
     if name in table:
         extra = f"（需等待 {getattr(e, 'seconds', '')} 秒）" if name == "FloodWaitError" else ""
@@ -235,17 +272,53 @@ class Api:
         phone = (phone or "").replace(" ", "")
         if not phone.startswith("+"):
             return {"ok": False, "error": "手机号要带国家码，例如 +8613800000000"}
+        if self._tg.phone == phone and time.time() - self._tg.code_sent_at < 600:
+            return {"ok": True, "already": True}  # 10 分钟内不重复请求，避免把发码方式用完
         try:
             cfg = self._cfg()
             client = self._tg.run(self._tg.ensure(cfg), timeout=40)
             self._tg.run(client.send_code_request(phone), timeout=40)
             self._tg.phone = phone
+            self._tg.code_sent_at = time.time()
             return {"ok": True}
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "error": _friendly(e)}
 
+    def login_qr_start(self) -> dict:
+        """开始扫码登录，返回二维码（SVG）"""
+        try:
+            cfg = self._cfg()
+            client = self._tg.run(self._tg.ensure(cfg), timeout=40)
+            if self._tg.run(client.is_user_authorized(), timeout=20):
+                return {**self.check_login(), "state": "done"}
+            self._tg.qr_cancel = False
+            self._tg.qr_state = {"state": "starting"}
+            asyncio.run_coroutine_threadsafe(self._tg.qr_flow(client), self._tg.loop)
+            for _ in range(60):
+                if self._tg.qr_state.get("state") != "starting":
+                    break
+                time.sleep(0.25)
+            return {"ok": True, **self._tg.qr_state}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": _friendly(e)}
+
+    def login_qr_status(self) -> dict:
+        st = dict(self._tg.qr_state)
+        if st.get("state") == "done":
+            return {**self.check_login(), "state": "done"}
+        return {"ok": True, **st}
+
+    def login_qr_cancel(self) -> dict:
+        self._tg.qr_cancel = True
+        return {"ok": True}
+
     def login_code(self, code: str) -> dict:
         from telethon.errors import SessionPasswordNeededError
+
+        code = re.sub(r"[\s-]", "", str(code or ""))
+        if not re.fullmatch(r"\d{5,6}", code):
+            return {"ok": False, "error": "验证码应该是 5 位数字，在 Telegram App 里「Telegram」官方账号（蓝色认证）发来的消息里。"
+                                          "my.telegram.org 网页的字母验证码不是这个"}
 
         try:
             client = self._tg.client
