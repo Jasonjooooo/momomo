@@ -70,3 +70,33 @@ def ffmpeg_bin(name: str) -> str:
         if Path(d, name).exists():
             return str(Path(d, name))
     return name
+
+
+# ---------------------------------------------------------------- HTTPS 证书
+_ssl_ctx = None
+
+
+def ensure_ca_env() -> None:
+    """打包后的应用找不到系统根证书，统一改用 certifi 自带的证书清单"""
+    import os
+
+    try:
+        import certifi
+
+        os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+    except ImportError:
+        pass
+
+
+def ssl_context():
+    global _ssl_ctx
+    if _ssl_ctx is None:
+        import ssl
+
+        try:
+            import certifi
+
+            _ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+        except ImportError:
+            _ssl_ctx = ssl.create_default_context()
+    return _ssl_ctx

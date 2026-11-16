@@ -26,6 +26,41 @@ def bundled_ffmpeg_dir() -> Path | None:
     return None
 
 
+def check_https() -> bool:
+    """真正用 HTTPS 连一次 Telegram 和 DeepSeek，确认证书验证没问题"""
+    import asyncio
+    import urllib.error
+    import urllib.request
+
+    import aiohttp
+
+    from tgremix.runtime import ssl_context
+
+    ok = True
+    for url in ("https://api.telegram.org/", "https://api.deepseek.com/"):
+        try:
+            urllib.request.urlopen(url, timeout=20, context=ssl_context())
+            print(f"HTTPS(urllib) {url}: ✅")
+        except urllib.error.HTTPError as e:  # 能收到 HTTP 状态码说明证书验证通过
+            print(f"HTTPS(urllib) {url}: ✅（HTTP {e.code}）")
+        except Exception as e:  # noqa: BLE001
+            print(f"HTTPS(urllib) {url}: ❌ {type(e).__name__}: {e}")
+            ok = False
+
+    async def via_aiohttp():
+        conn = aiohttp.TCPConnector(ssl=ssl_context())
+        async with aiohttp.ClientSession(connector=conn) as s:
+            async with s.get("https://api.telegram.org/bot0:invalid/getMe") as r:
+                return r.status
+
+    try:
+        print(f"HTTPS(aiohttp) api.telegram.org: ✅（HTTP {asyncio.run(via_aiohttp())}）")
+    except Exception as e:  # noqa: BLE001
+        print(f"HTTPS(aiohttp) api.telegram.org: ❌ {type(e).__name__}: {e}")
+        ok = False
+    return ok
+
+
 def selftest() -> int:
     """不开窗口，检查打包结果：依赖能导入、ffmpeg 可用、能完整处理一条视频"""
     import subprocess
@@ -59,6 +94,9 @@ def selftest() -> int:
     import aiohttp_socks  # noqa: F401  （机器人走代理要用）
     from tgremix.bot import FilterBot  # noqa: F401
     print("机器人组件: ✅")
+    if not check_https():
+        print("❌ HTTPS 证书验证失败")
+        return 1
 
     with tempfile.TemporaryDirectory() as td:
         root = Path(td)
@@ -111,6 +149,9 @@ def selftest() -> int:
 
 
 def main() -> None:
+    from tgremix.runtime import ensure_ca_env
+
+    ensure_ca_env()
     if "--selftest" in sys.argv:
         sys.exit(selftest())
 

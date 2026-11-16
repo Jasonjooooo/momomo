@@ -6,6 +6,8 @@ import re
 import urllib.error
 import urllib.request
 
+from .runtime import ssl_context
+
 
 class AIError(Exception):
     pass
@@ -25,7 +27,7 @@ def chat(acfg: dict, prompt: str, max_tokens: int = 400, temperature: float = 0.
     req = urllib.request.Request(base + "/chat/completions", data=body, headers={
         "Content-Type": "application/json", "Authorization": f"Bearer {key}"})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with urllib.request.urlopen(req, timeout=timeout, context=ssl_context()) as r:
             data = json.loads(r.read())
     except urllib.error.HTTPError as e:
         detail = e.read().decode(errors="ignore")[:200]

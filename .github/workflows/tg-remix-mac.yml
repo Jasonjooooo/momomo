@@ -60,7 +60,7 @@ jobs:
 
           PL="$APP/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName TG二创" "$PL" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string TG二创" "$PL"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.2.0" "$PL" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.2.0" "$PL"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString 1.2.1" "$PL" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string 1.2.1" "$PL"
           /usr/libexec/PlistBuddy -c "Add :NSHighResolutionCapable bool true" "$PL" 2>/dev/null || true
 
           codesign --force --deep --sign - "$APP"

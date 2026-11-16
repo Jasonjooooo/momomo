@@ -18,7 +18,7 @@ from tgremix.config import DEFAULTS, load_config, resolve
 from tgremix.runtime import Cancelled, UserError, log, stop_event
 from tgremix.state import State
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.2.1"
 
 
 def _open(path: Path) -> None:

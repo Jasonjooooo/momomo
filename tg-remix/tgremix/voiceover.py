@@ -6,6 +6,8 @@ import json
 import re
 import urllib.error
 import urllib.request
+
+from .runtime import ssl_context
 from pathlib import Path
 
 STYLES = {
@@ -65,7 +67,7 @@ def write_commentary(post_text: str, seconds: float, vcfg: dict) -> str:
     req = urllib.request.Request(url, data=body, headers={
         "Content-Type": "application/json", "Authorization": f"Bearer {key}"})
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
+        with urllib.request.urlopen(req, timeout=60, context=ssl_context()) as r:
             data = json.loads(r.read())
     except urllib.error.HTTPError as e:
         detail = e.read().decode(errors="ignore")[:200]
