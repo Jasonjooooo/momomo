@@ -355,6 +355,132 @@ class Api:
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "error": str(e)}
 
+    # ------------------------------------------------------------ 我的群组
+    def list_dialogs(self, include_all: bool = False) -> dict:
+        """列出账号里的群组和频道（include_all=True 时也包括私聊和机器人）"""
+        from telethon import utils
+
+        try:
+            cfg = self._cfg()
+            client = self._tg.run(self._tg.ensure(cfg), timeout=40)
+            if not self._tg.run(client.is_user_authorized(), timeout=20):
+                return {"ok": False, "error": "请先在「账号」页登录 Telegram"}
+            dialogs = self._tg.run(client.get_dialogs(limit=None), timeout=180)
+            out = []
+            for d in dialogs:
+                if not (d.is_group or d.is_channel) and not include_all:
+                    continue
+                e = d.entity
+                kind = "群组" if d.is_group else "频道" if d.is_channel else ("机器人" if getattr(e, "bot", False) else "私聊")
+                out.append({
+                    "id": str(utils.get_peer_id(e)),
+                    "title": d.name or getattr(e, "title", "") or "",
+                    "kind": kind,
+                    "username": getattr(e, "username", None) or "",
+                    "members": getattr(e, "participants_count", None) or 0,
+                    "unread": d.unread_count or 0,
+                })
+            return {"ok": True, "dialogs": out}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": _friendly(e)}
+
+    def dialog_avatar(self, peer_id: str) -> str:
+        """群组 / 频道的小头像（data URL），有缓存"""
+        from tgremix.downloader import _normalize_channel
+
+        cache = self.__dict__.setdefault("_avatars", {})
+        if peer_id in cache:
+            return cache[peer_id]
+
+        async def get(client):
+            ent = await client.get_entity(_normalize_channel(peer_id))
+            b = await client.download_profile_photo(ent, file=bytes, download_big=False)
+            import base64
+
+            return "data:image/jpeg;base64," + base64.b64encode(b).decode() if b else ""
+
+        try:
+            client = self._tg.run(self._tg.ensure(self._cfg()), timeout=40)
+            cache[peer_id] = self._tg.run(get(client), timeout=30)
+        except Exception:  # noqa: BLE001
+            cache[peer_id] = ""
+        return cache[peer_id]
+
+    # ------------------------------------------------------------ 浏览
+    def browse_list(self, peer_id: str, kind: str = "all", query: str = "", offset_id: int = 0) -> dict:
+        from tgremix import browse
+
+        try:
+            client = self._tg.run(self._tg.ensure(self._cfg()), timeout=40)
+            state = State(self._root / "state.json")
+            return {"ok": True, **self._tg.run(browse.list_items(client, peer_id, kind, query, int(offset_id or 0), state),
+                                               timeout=180)}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": _friendly(e)}
+
+    def browse_preview(self, peer_id: str, msg_id: int) -> dict:
+        from tgremix import browse
+
+        try:
+            client = self._tg.run(self._tg.ensure(self._cfg()), timeout=40)
+            return {"ok": True, **self._tg.run(browse.preview(client, peer_id, msg_id), timeout=120)}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": _friendly(e)}
+
+    def browse_download(self, peer_id: str, ids: list, play: bool = False) -> dict:
+        """下载选中的内容（后台进行，进度在「运行」页日志里）；play=True 时下完自动打开"""
+        if not ids:
+            return {"ok": False, "error": "没有要下载的内容"}
+        return self._start_thread(self._browse_dl, peer_id, list(ids), bool(play))
+
+    def _browse_dl(self, peer_id: str, ids: list, play: bool) -> None:
+        from tgremix import browse
+        from tgremix.downloader import download_todo
+
+        cfg = self._cfg()
+        state = State(self._root / "state.json")
+        self._set_status("下载选中的内容…")
+        client = self._tg.run(self._tg.ensure(cfg), timeout=60)
+        todo, texts = self._tg.run(browse.build_todo(client, peer_id, ids, cfg,
+                                                     resolve(cfg, cfg["paths"]["downloads"]), state), timeout=120)
+        log(f"—— 浏览页下载：{len(todo)} 个文件" + (f"，{texts} 条文字已存入 文字.csv" if texts else "") + " ——")
+        if todo:
+            self._tg.run(download_todo(client, cfg, state, todo))
+        state.save()
+        done = [t for t in todo if t.get("final")]
+        self._last_browse_done = {"peer": peer_id, "ids": [t["m"].id for t in done] + ([] if not texts else ids)}
+        if play and done:
+            _open(Path(done[0]["final"]))
+
+    def browse_done(self) -> dict:
+        """浏览页用：最近一次下载完成的消息编号（用来标记 ✓ 已下载）"""
+        return self.__dict__.get("_last_browse_done") or {}
+
+    def open_downloaded(self, peer_id: str) -> dict:
+        """打开某个群的下载文件夹"""
+        return self.open_folder("downloads")
+
+    def preview_dialog(self, peer_id: str) -> dict:
+        """看看某个群最近 100 条里有多少视频 / 图片 / 文字"""
+        from tgremix.downloader import _kind_of, _normalize_channel
+
+        async def count(client):
+            ent = await client.get_entity(_normalize_channel(peer_id))
+            c = {"video": 0, "photo": 0, "text": 0, "other": 0}
+            samples = []
+            async for m in client.iter_messages(ent, limit=100):
+                k = _kind_of(m) or "other"
+                c[k] += 1
+                if k in ("video", "text") and m.message and len(samples) < 3:
+                    samples.append(m.message.strip().replace("\n", " ")[:40])
+            return {"counts": c, "samples": samples}
+
+        try:
+            client = self._tg.run(self._tg.ensure(self._cfg()), timeout=40)
+            return {"ok": True, **self._tg.run(count(client), timeout=90)}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": _friendly(e)}
+
     # ------------------------------------------------------------ 运行
     def start(self, mode: str = "all", redo: bool = False) -> dict:
         return self._start_thread(self._work, mode, bool(redo))
@@ -375,7 +501,7 @@ class Api:
                     return
                 self._set_status("下载中…")
                 n = self._tg.run(download_with_client(client, cfg, state))
-                log(f"✅ 下载完成，新增 {n} 个视频")
+                log(f"✅ 下载完成，新增 {n} 个文件")
             if mode in ("all", "process"):
                 self._set_status("处理中…")
                 log("—— 开始处理 ——")

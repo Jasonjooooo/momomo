@@ -30,6 +30,48 @@ def _is_video(msg) -> bool:
     return bool(f and (f.mime_type or "").startswith("video/") and not msg.gif and not getattr(msg, "video_note", None))
 
 
+KIND_DIRS = {"video": "视频", "photo": "图片", "file": "文件", "audio": "音频"}
+
+
+def _kind_of(m) -> str | None:
+    """消息类型：video / photo / text / audio / file / None（其他）"""
+    if _is_video(m):
+        return "video"
+    if getattr(m, "photo", None) is not None:
+        return "photo"
+    f = getattr(m, "file", None)
+    if getattr(m, "document", None) is not None and f is not None and not getattr(m, "sticker", None):
+        mime = (f.mime_type or "")
+        if mime.startswith("audio/") or getattr(m, "voice", None):
+            return "audio"
+        if not mime.startswith("video/"):
+            return "file"
+    if (m.message or "").strip() and getattr(m, "media", None) is None:
+        return "text"
+    return None
+
+
+def _text_ok(text: str, keywords, exclude) -> str | None:
+    if keywords and not any(k in text for k in keywords):
+        return "不含关键词"
+    if any(k in text for k in exclude):
+        return "含排除词"
+    return None
+
+
+def _append_text(path: Path, m, text: str, link: str, tags) -> None:
+    """文字消息汇总到「文字.csv」（Excel 能直接打开）"""
+    import csv
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    new = not path.exists()
+    with open(path, "a", newline="", encoding="utf-8-sig") as f:
+        w = csv.writer(f)
+        if new:
+            w.writerow(["日期", "内容", "链接", "标签"])
+        w.writerow([m.date.strftime("%Y-%m-%d %H:%M") if m.date else "", text, link, "、".join(tags)])
+
+
 def _safe_name(s: str) -> str:
     return re.sub(r'[\\/:*?"<>|\s]+', "_", s)[:60] or "channel"
 
@@ -120,54 +162,87 @@ async def download_with_client(client, cfg: dict, state: State) -> int:
     dl_root = resolve(cfg, cfg["paths"]["downloads"])
     dl_root.mkdir(parents=True, exist_ok=True)
     rules = cfg["download"]
-    parallel = max(1, min(5, int(rules.get("concurrency") or 3)))
+    parallel = max(1, min(8, int(rules.get("concurrency") or 3)))
 
-    # ---------- 第 1 步：列出要下载的视频 ----------
+    # ---------- 第 1 步：列出要下载的内容（视频 / 图片 / 文字） ----------
     todo = []
+    dialogs_loaded = False
     for ch in cfg["channels"]:
         check_stop()
         raw = ch.get("channel") if isinstance(ch, dict) else ch
         opts = ch if isinstance(ch, dict) else {}
-        if not raw:
+        if not raw or opts.get("enabled") is False:
             continue
+        target = _normalize_channel(raw)
         try:
-            entity = await client.get_entity(_normalize_channel(raw))
+            entity = await client.get_entity(target)
         except Exception as e:  # noqa: BLE001
-            log(f"❌ 找不到频道 {raw}：{e}")
-            continue
+            if isinstance(target, int) and not dialogs_loaded:
+                # 从「我的群组」选的是编号，找不到时先把对话列表读一遍（会缓存群组信息）再试
+                dialogs_loaded = True
+                await client.get_dialogs()
+                try:
+                    entity = await client.get_entity(target)
+                except Exception as e2:  # noqa: BLE001
+                    log(f"❌ 找不到 {opts.get('title') or raw}：{e2}")
+                    continue
+            else:
+                log(f"❌ 找不到频道 {raw}：{e}")
+                continue
         username = getattr(entity, "username", None)
         key = username or str(entity.id)
-        title = getattr(entity, "title", key)
+        title = getattr(entity, "title", None) or opts.get("title") or key
         limit = int(opts.get("limit") or 20)
         keywords = [k for k in (opts.get("keywords") or []) if k]
         exclude = [k for k in (opts.get("exclude") or []) if k]
+        types = set(opts.get("types") or ["video"])
+        tags = [t for t in (opts.get("tags") or []) if t]
 
         msgs = [m async for m in client.iter_messages(entity, limit=limit)]
         group_text = {m.grouped_id: m.message for m in msgs if m.grouped_id and m.message}
-        ch_dir = dl_root / _safe_name(key)
-        ch_dir.mkdir(exist_ok=True)
-        n_new = n_skip = 0
+        base = dl_root / (_safe_name(username) if username else f"{_safe_name(title)}_{entity.id}")
+        cnt = {"video": 0, "photo": 0, "text": 0, "skip": 0}
         for m in reversed(msgs):  # 从旧到新
-            if not _is_video(m) or state.is_downloaded(key, m.id):
+            kind = _kind_of(m)
+            if kind not in types or state.is_downloaded(key, m.id):
                 continue
             text = m.message or group_text.get(m.grouped_id, "") or ""
-            reason = _video_ok(m, rules, keywords, exclude, text)
+            reason = _video_ok(m, rules, keywords, exclude, text) if kind == "video" else _text_ok(text, keywords, exclude)
             if reason:
                 log(f"  ⏭ {title} #{m.id} 跳过：{reason}")
                 state.mark_downloaded(key, m.id)
-                n_skip += 1
+                cnt["skip"] += 1
                 continue
             link = f"https://t.me/{username}/{m.id}" if username else f"https://t.me/c/{entity.id}/{m.id}"
-            todo.append({"m": m, "key": key, "title": title, "dir": ch_dir, "text": text, "link": link})
-            n_new += 1
-        log(f"📺 {title}（{key}）：{n_new} 个新视频" + (f"，跳过 {n_skip} 个" if n_skip else ""))
+            if kind == "text":
+                _append_text(base / "文字.csv", m, text, link, tags)
+                state.mark_downloaded(key, m.id)
+            else:
+                sub = base / KIND_DIRS.get(kind, "其他")
+                sub.mkdir(parents=True, exist_ok=True)
+                todo.append({"m": m, "key": key, "title": title, "dir": sub, "text": text, "link": link,
+                             "kind": kind, "tags": tags})
+            cnt[kind] += 1
+        parts = [f"{cnt['video']} 个视频" if "video" in types else "", f"{cnt['photo']} 张图片" if "photo" in types else "",
+                 f"{cnt['text']} 条文字" if "text" in types else ""]
+        log(f"📺 {title}" + (f"【{'、'.join(tags)}】" if tags else "") + "：新的 " + "、".join(x for x in parts if x)
+            + (f"，跳过 {cnt['skip']} 条" if cnt["skip"] else ""))
     state.save()
     if not todo:
-        log("没有新视频")
+        log("没有需要下载的新视频 / 图片")
         return 0
 
-    # ---------- 第 2 步：并行下载 ----------
-    total_mb = sum((t["m"].file.size or 0) for t in todo) / 1048576
+    return await download_todo(client, cfg, state, todo)
+
+
+async def download_todo(client, cfg: dict, state: State, todo: list) -> int:
+    """
+    并行下载一批消息（视频 / 图片 / 文件 / 音频），自动抓取和「浏览」页共用。
+    todo 里每项：{"m", "key", "title", "dir", "text", "link", "kind", "tags"}
+    """
+    rules = cfg["download"]
+    parallel = max(1, min(8, int(rules.get("concurrency") or 3)))
+    total_mb = sum(((t["m"].file.size if t["m"].file else 0) or 0) for t in todo) / 1048576
     conns = int(rules.get("connections", 6) or 0)
     fast = {"on": conns > 1, "fd": None}
     if fast["on"]:
@@ -176,7 +251,7 @@ async def download_with_client(client, cfg: dict, state: State) -> int:
         fast["fd"] = FastDownloader(client, conns)
     log(f"⚙️ 加速：cryptg {'已启用 ✅' if _has_cryptg() else '未启用（解密较慢）'} · "
         + (f"多连接分段下载 {conns} 条连接" if fast["on"] else "多连接下载已关闭"))
-    log(f"⬇️ 开始下载 {len(todo)} 个视频，共 {total_mb:.0f} MB，同时下载 {parallel} 个")
+    log(f"⬇️ 开始下载 {len(todo)} 个文件，共 {total_mb:.0f} MB，同时下载 {parallel} 个")
     sp = _Speed(len(todo))
     sp.parallel = parallel
     sem = asyncio.Semaphore(parallel)
@@ -187,14 +262,21 @@ async def download_with_client(client, cfg: dict, state: State) -> int:
         m = t["m"]
         async with sem:
             check_stop()
-            ext = m.file.ext or ".mp4"
-            final = t["dir"] / f"{m.id}{ext}"
-            part = t["dir"] / f"{m.id}.part{ext}"
+            ext = (m.file.ext if m.file else None) or (".jpg" if t["kind"] == "photo" else ".mp4")
+            orig = getattr(m.file, "name", None) if m.file else None
+            if t["kind"] in ("file", "audio") and orig:  # 文件和音频保留原文件名
+                final = t["dir"] / f"{m.id}_{_safe_name(Path(orig).stem)}{Path(orig).suffix or ext}"
+            else:
+                final = t["dir"] / f"{m.id}{ext}"
+            part = final.with_name(final.name + ".part")
             started = time.time()
             how = "普通"
             try:
                 done = False
-                if fast["on"] and getattr(m, "document", None) is not None and m.file.size:
+                if t["kind"] in ("photo", "file", "audio"):
+                    await client.download_media(m, file=str(part), progress_callback=sp.cb((t["key"], m.id)))
+                    done, how = True, {"photo": "图片", "file": "文件", "audio": "音频"}[t["kind"]]
+                if not done and fast["on"] and getattr(m, "document", None) is not None and m.file.size:
                     try:
                         await fast["fd"].download(m.document, part, m.file.size, sp.cb((t["key"], m.id)))
                         done, how = True, "多连接"
@@ -223,13 +305,14 @@ async def download_with_client(client, cfg: dict, state: State) -> int:
                 return
             meta = {"channel": t["key"], "channel_title": t["title"], "id": m.id,
                     "date": m.date.isoformat() if m.date else "", "text": t["text"], "link": t["link"],
-                    "file": final.name}
+                    "file": final.name, "kind": t["kind"], "tags": t["tags"]}
             final.with_suffix(".json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+            t["final"] = str(final)
             state.mark_downloaded(t["key"], m.id)
             state.save()
             new_count += 1
             sp.finished += 1
-            size = (m.file.size or 0) / 1048576
+            size = ((m.file.size if m.file else 0) or 0) / 1048576
             secs = max(0.1, time.time() - started)
             log(f"  ✅ {t['title']} #{m.id}  {size:.1f} MB（{size / secs:.1f} MB/s，{how}）")
             sp.report(force=True)

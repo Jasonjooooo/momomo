@@ -538,6 +538,11 @@ def collect_jobs(cfg: dict) -> list[Job]:
 
 
 def _append_manifest(path: Path, row: dict) -> None:
+    if path.exists():  # 旧版本生成的清单列不一样 → 另起一个文件，避免列对不上
+        with open(path, encoding="utf-8-sig") as fp:
+            header = fp.readline().strip().split(",")
+        if header != list(row):
+            path = path.with_name(path.stem + "（新）" + path.suffix)
     new = not path.exists()
     with open(path, "a", newline="", encoding="utf-8-sig") as fp:
         w = csv.DictWriter(fp, fieldnames=list(row))
@@ -547,8 +552,12 @@ def _append_manifest(path: Path, row: dict) -> None:
 
 
 def process_one(job: Job, cfg: dict, font: str | None, out_dir: Path, seconds: float | None = None) -> Path:
+    tags = [t for t in (job.meta.get("tags") or []) if t]
+    if tags:  # 成品按第一个标签分文件夹
+        out_dir = out_dir / re.sub(r'[\\/:*?"<>|\s]+', "_", tags[0])
     out_dir.mkdir(parents=True, exist_ok=True)
-    name = re.sub(r'[\\/:*?"<>|\s]+', "_", f"{job.meta['channel']}_{job.meta['id']}")
+    src_name = job.meta.get("channel_title") or job.meta["channel"]  # 用群名，私密群没有用户名时不至于只剩数字
+    name = re.sub(r'[\\/:*?"<>|\s]+', "_", f"{src_name}_{job.meta['id']}")[:80]
     out = out_dir / f"{name}.mp4"
     with tempfile.TemporaryDirectory(prefix="tgremix_") as td:
         tmpdir = Path(td)
@@ -617,7 +626,8 @@ def process_all(cfg: dict, state: State, redo: bool = False, limit: int | None =
             "标题": job.meta.get("_title", ""),
             "背景音乐": job.meta.get("_bgm", ""),
             "AI解说": job.meta.get("_commentary_used", ""),
-            "成品": out.name,
+            "标签": "、".join(job.meta.get("tags") or []),
+            "成品": str(out.relative_to(out_dir)) if out.is_relative_to(out_dir) else out.name,
         })
     log(f"\n✅ 处理完成：成功 {ok} 个，失败 {len(jobs) - ok} 个")
     return ok

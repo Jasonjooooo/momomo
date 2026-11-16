@@ -101,6 +101,36 @@ td.del button:hover { background: var(--input); color: var(--err); }
 .banner.warn { background: #fff4e5; border-color: #f0a33c; }
 @media (prefers-color-scheme: dark) { .banner.warn { background: #3a2a10; } }
 .banner .grow { flex: 1; }
+/* 浏览 */
+.dlg { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; cursor: pointer; }
+.dlg:hover { background: var(--input); }
+.ava { width: 40px; height: 40px; border-radius: 50%; flex: none; background: linear-gradient(135deg,#5b8cff,#8b6cff);
+  color: #fff; display: grid; place-items: center; font-weight: 600; overflow: hidden; }
+.ava img { width: 100%; height: 100%; object-fit: cover; }
+.dlg .nm { flex: 1; min-width: 0; }
+.dlg .nm b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.tabs button { font: inherit; cursor: pointer; border: 1px solid var(--border); background: var(--panel); color: var(--fg);
+  border-radius: 8px; padding: 6px 14px; }
+.tabs button.on { background: #ff9500; border-color: #ff9500; color: #fff; font-weight: 600; }
+.it { display: flex; align-items: center; gap: 14px; padding: 10px; border: 1px solid var(--border); border-radius: 12px;
+  margin-bottom: 8px; background: var(--panel); }
+.it .th { width: 64px; height: 64px; border-radius: 8px; flex: none; background: var(--input); display: grid;
+  place-items: center; font-size: 26px; overflow: hidden; position: relative; }
+.it .th img { width: 100%; height: 100%; object-fit: cover; cursor: zoom-in; }
+.it .th .dur { position: absolute; right: 3px; bottom: 3px; background: rgba(0,0,0,.65); color: #fff; font-size: 10px;
+  padding: 0 4px; border-radius: 4px; }
+.it .bd { flex: 1; min-width: 0; }
+.it .bd b { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.it .bd .tx { color: var(--muted); font-size: 12.5px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.it .done { color: var(--ok); font-size: 13px; white-space: nowrap; }
+.lb { position: fixed; inset: 0; background: rgba(0,0,0,.86); z-index: 50; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 12px; }
+.lb img { max-width: 88vw; max-height: 74vh; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+.lb .cap { color: #ddd; max-width: 80vw; text-align: center; font-size: 13px; max-height: 12vh; overflow-y: auto; }
+.lb .nav { position: absolute; top: 50%; transform: translateY(-50%); font-size: 34px; color: #fff; cursor: pointer;
+  padding: 10px 16px; user-select: none; }
+.lb .x { position: absolute; top: 14px; right: 20px; font-size: 26px; color: #fff; cursor: pointer; }
 .toast { position: fixed; right: 24px; bottom: 24px; background: var(--fg); color: var(--bg); padding: 10px 16px;
   border-radius: 10px; opacity: 0; transition: opacity .2s; pointer-events: none; }
 .toast.show { opacity: .92; }
@@ -110,7 +140,8 @@ td.del button:hover { background: var(--input); color: var(--err); }
 <nav>
   <h1><span class="logo">TG</span>TG 二创</h1>
   <button data-page="run" class="on"><span class="ico">▶</span>运行</button>
-  <button data-page="channels"><span class="ico">📺</span>频道</button>
+  <button data-page="browse"><span class="ico">🗂</span>浏览</button>
+  <button data-page="channels"><span class="ico">📺</span>群组</button>
   <button data-page="effects"><span class="ico">🎨</span>效果</button>
   <button data-page="bot"><span class="ico">🤖</span>机器人 <span id="botDot" class="dot"></span></button>
   <button data-page="account"><span class="ico">👤</span>账号 <span id="navDot" class="dot"></span></button>
@@ -142,6 +173,11 @@ td.del button:hover { background: var(--input); color: var(--err); }
       <button class="btn" id="btnProcess">只处理</button>
       <button class="btn" id="btnRedo" title="改了效果设置后，把已处理过的视频全部重新处理">全部重新处理</button>
       <button class="btn danger" id="btnStop" disabled>■ 停止</button>
+      <label class="help" style="margin-left:auto;display:flex;align-items:center;gap:6px">同时下载
+        <select data-path="download.concurrency" data-num>
+          <option value="1">1 个</option><option value="2">2 个</option><option value="3">3 个</option><option value="4">4 个</option>
+          <option value="5">5 个</option><option value="6">6 个</option><option value="8">8 个</option>
+        </select></label>
     </div>
     <div class="status"><span id="runDot" class="dot"></span><span id="status">空闲</span><span class="progress" id="progress"></span></div>
     <div class="log" id="log"></div>
@@ -161,24 +197,76 @@ td.del button:hover { background: var(--input); color: var(--err); }
   </div>
 </section>
 
+<!-- ======================= 浏览 ======================= -->
+<section class="page" id="page-browse">
+  <div id="bvList">
+    <h2>浏览 <span class="hint" id="bvCount" style="font-size:14px;font-weight:400;color:var(--muted)"></span></h2>
+    <p class="sub">点进任何群组 / 频道，按视频、图片、文字、文件、音频分类查看，点缩略图放大，选中下载。</p>
+    <div class="row">
+      <input type="text" id="bvSearch" placeholder="搜索聊天…" style="max-width:320px">
+      <select id="bvFilter"><option value="all">全部</option><option value="群组">群组</option><option value="频道">频道</option>
+        <option value="私聊">私聊</option><option value="机器人">机器人</option></select>
+      <button class="btn" id="bvReload">刷新</button>
+    </div>
+    <div class="card" style="padding:8px" id="bvDialogs"><div class="empty">读取中…（需要先在「账号」页登录）</div></div>
+  </div>
+
+  <div id="bvGroup" class="hidden">
+    <div class="row" style="margin-top:0">
+      <button class="btn" id="bvBack">‹ 返回对话列表</button>
+      <strong id="bvTitle" style="font-size:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1"></strong>
+      <button class="btn" id="bvAddGrab">＋ 加入抓取列表</button>
+      <button class="btn" data-open="downloads">打开下载文件夹</button>
+    </div>
+    <div class="tabs" id="bvTabs">
+      <button data-k="all" class="on">全部</button><button data-k="video">视频</button><button data-k="photo">图片</button>
+      <button data-k="text">文字</button><button data-k="file">文件</button><button data-k="audio">音频</button>
+    </div>
+    <div class="row"><input type="text" id="bvQ" placeholder="搜索这个群里的内容…（回车）"></div>
+    <div class="row"><span id="bvInfo" class="help"></span><span style="flex:1"></span>
+      <button class="btn pri" id="bvAll">全部下载</button></div>
+    <div id="bvItems"></div>
+    <div class="row" style="justify-content:center"><button class="btn hidden" id="bvMore">加载更多</button></div>
+  </div>
+</section>
+
+<div class="lb hidden" id="lb">
+  <span class="x" id="lbX">✕</span>
+  <span class="nav" id="lbPrev" style="left:10px">‹</span>
+  <span class="nav" id="lbNext" style="right:10px">›</span>
+  <img id="lbImg" alt="">
+  <div class="cap" id="lbCap"></div>
+  <div class="row" style="margin:0"><button class="btn pri" id="lbDl">下载</button><button class="btn" id="lbPlay">下载并播放</button></div>
+</div>
+
 <!-- ======================= 频道 ======================= -->
 <section class="page" id="page-channels">
-  <h2>频道</h2>
-  <p class="sub">要下载视频的 Telegram 频道。私密频道需要你的账号已经加入。</p>
+  <h2>群组 / 频道</h2>
+  <p class="sub">从你的 Telegram 里直接勾选要抓的群组和频道，每个可以选抓视频 / 图片 / 文字，并打上自己的标签。</p>
+
   <div class="card">
-    <table>
-      <thead><tr><th style="width:34%">频道（用户名或 t.me 链接）</th><th>每次查看条数</th><th>只要含这些词</th><th>排除这些词</th><th></th></tr></thead>
-      <tbody id="chBody"></tbody>
-    </table>
-    <div class="row"><button class="btn" id="btnAddCh">＋ 添加频道</button></div>
-    <p class="help">「只要含这些词 / 排除这些词」可留空，多个词用逗号分隔，按帖子文字判断。</p>
+    <h3>从我的 Telegram 选择 <span class="hint">需要先在「账号」页登录</span></h3>
+    <div class="row" style="margin-top:0">
+      <button class="btn pri" id="btnLoadDialogs">读取我的群组和频道</button>
+      <input type="text" id="dlgSearch" placeholder="搜索名称…" style="max-width:220px">
+      <select id="dlgFilter"><option value="all">全部</option><option value="群组">只看群组</option><option value="频道">只看频道</option></select>
+      <span class="help" id="dlgInfo"></span>
+    </div>
+    <div id="dlgList" style="max-height:360px;overflow-y:auto"></div>
+  </div>
+
+  <div class="card">
+    <h3>要抓取的 <span class="hint" id="chCount"></span></h3>
+    <div id="chList"></div>
+    <div class="row"><button class="btn" id="btnAddCh">＋ 手动添加链接</button>
+      <span class="help">「只要含 / 排除」按帖子文字判断，多个词用逗号分隔，可留空</span></div>
   </div>
   <div class="card">
     <h3>下载规则</h3>
     <div class="row"><label>最短</label><input type="number" min="0" data-path="download.min_duration"> 秒（更短的不下载）</div>
     <div class="row"><label>最长</label><input type="number" min="1" data-path="download.max_duration"> 秒（更长的不下载）</div>
     <div class="row"><label>最大</label><input type="number" min="1" data-path="download.max_size_mb"> MB</div>
-    <div class="row"><label>同时下载</label><input type="number" min="1" max="5" data-path="download.concurrency"> 个
+    <div class="row"><label>同时下载</label><input type="number" min="1" max="8" data-path="download.concurrency"> 个
       <span class="help">2–3 个最合适；太多可能被 Telegram 限速</span></div>
     <div class="row"><label>多连接下载</label><input type="number" min="0" max="12" data-path="download.connections"> 条连接
       <span class="help">把每个文件分成小块、用多条连接同时下，单条连接被限速时能快很多；填 0 关闭。出问题会自动改用普通方式</span></div>
@@ -591,41 +679,107 @@ $("#rootLink").addEventListener("click", () => api.open_folder("root"));
 
 // ---------- 频道 ----------
 const splitWords = (s) => s.split(/[,，、\s]+/).map((x) => x.trim()).filter(Boolean);
+const TYPES = [["video", "视频"], ["photo", "图片"], ["text", "文字"]];
 function renderChannels() {
-  const body = $("#chBody");
-  body.replaceChildren();
+  const box = $("#chList");
+  box.replaceChildren();
   const chs = cfg.channels;
-  if (!chs.length) {
-    const tr = document.createElement("tr");
-    tr.innerHTML = '<td colspan="5" class="empty">还没有频道，点下面「添加频道」</td>';
-    body.append(tr);
-  }
+  $("#chCount").textContent = chs.length ? `共 ${chs.length} 个，启用 ${chs.filter((c) => c.enabled !== false).length} 个` : "";
+  if (!chs.length) box.append(Object.assign(document.createElement("div"), { className: "empty", textContent: "还没有，点上面「读取我的群组和频道」勾选，或手动添加链接" }));
   chs.forEach((ch, i) => {
-    const tr = document.createElement("tr");
-    const mk = (type, value, ph, on) => {
-      const td = document.createElement("td");
-      const inp = document.createElement("input");
-      inp.type = type; inp.value = value ?? ""; inp.placeholder = ph;
-      if (type === "number") { inp.min = 1; inp.max = 1000; }
-      inp.addEventListener("change", () => { on(inp.value); save(); });
-      td.append(inp); return td;
+    const it = itemBox();
+    const en = document.createElement("label"); en.className = "check";
+    const cb = document.createElement("input"); cb.type = "checkbox"; cb.checked = ch.enabled !== false;
+    cb.addEventListener("change", () => { ch.enabled = cb.checked; save(); renderChannels(); });
+    en.append(cb, "启用");
+    const head = document.createElement("div"); head.style.cssText = "flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+    if (ch.title) head.textContent = ch.title;
+    else {
+      const inp = document.createElement("input"); inp.type = "text"; inp.value = ch.channel || ""; inp.placeholder = "频道用户名或 https://t.me/xxx 链接";
+      inp.addEventListener("change", () => { ch.channel = inp.value.trim(); save(); });
+      head.append(inp);
+    }
+    const kinds = document.createElement("span"); kinds.style.cssText = "display:inline-flex;gap:10px";
+    const cur = new Set(ch.types || ["video"]);
+    for (const [k, t] of TYPES) {
+      const l = document.createElement("label"); l.className = "check"; l.style.marginRight = "0";
+      const c = document.createElement("input"); c.type = "checkbox"; c.checked = cur.has(k);
+      c.addEventListener("change", () => {
+        c.checked ? cur.add(k) : cur.delete(k);
+        if (!cur.size) { cur.add("video"); renderChannels(); }
+        ch.types = TYPES.map((x) => x[0]).filter((x) => cur.has(x)); save();
+      });
+      l.append(c, t); kinds.append(l);
+    }
+    const txt = (val, ph, on, w) => {
+      const inp = document.createElement("input"); inp.type = "text"; inp.value = val; inp.placeholder = ph;
+      if (w) inp.style.maxWidth = w;
+      inp.addEventListener("change", () => { on(inp.value); save(); }); return inp;
     };
-    tr.append(
-      mk("text", ch.channel, "例：channel_name 或 https://t.me/xxx", (v) => (ch.channel = v.trim())),
-      mk("number", ch.limit ?? 20, "20", (v) => (ch.limit = Math.max(1, parseInt(v) || 20))),
-      mk("text", (ch.keywords || []).join("，"), "可留空", (v) => (ch.keywords = splitWords(v))),
-      mk("text", (ch.exclude || []).join("，"), "可留空", (v) => (ch.exclude = splitWords(v))),
+    if (ch.enabled === false) it.style.opacity = ".55";
+    it.append(
+      row(en, head, lbl(ch.kind || (ch.title ? "" : "手动添加")), delBtn(chs, i, renderChannels)),
+      row(lbl("抓取"), kinds, lbl("每次看最近"), mkNum(ch.limit ?? 50, { min: 1, max: 2000 }, (v) => (ch.limit = Math.max(1, v || 50))), lbl("条")),
+      row(lbl("标签"), txt((ch.tags || []).join("，"), "例：搞笑，吃瓜（成品按第一个标签分文件夹）", (v) => (ch.tags = splitWords(v)))),
+      row(lbl("只要含"), txt((ch.keywords || []).join("，"), "可留空", (v) => (ch.keywords = splitWords(v)), "200px"),
+          lbl("排除"), txt((ch.exclude || []).join("，"), "可留空", (v) => (ch.exclude = splitWords(v)), "200px")),
     );
-    const td = document.createElement("td"); td.className = "del";
-    const del = document.createElement("button"); del.textContent = "✕"; del.title = "删除";
-    del.addEventListener("click", () => { chs.splice(i, 1); renderChannels(); save(); });
-    td.append(del); tr.append(td); body.append(tr);
+    box.append(it);
   });
 }
+
+// ---------- 从我的 Telegram 读取群组 ----------
+let dialogs = [];
+const chIndex = () => new Set(cfg.channels.map((c) => String(c.channel)));
+function renderDialogs() {
+  const box = $("#dlgList"); box.replaceChildren();
+  if (!dialogs.length) return;
+  const q = $("#dlgSearch").value.trim().toLowerCase();
+  const f = $("#dlgFilter").value;
+  const have = chIndex();
+  const list = dialogs.filter((d) => (f === "all" || d.kind === f) && (!q || d.title.toLowerCase().includes(q) || d.username.toLowerCase().includes(q)));
+  $("#dlgInfo").textContent = `共 ${dialogs.length} 个，显示 ${list.length} 个`;
+  for (const d of list) {
+    const r = document.createElement("div"); r.className = "row"; r.style.cssText = "margin:0;padding:6px 4px;border-bottom:1px solid var(--border)";
+    const l = document.createElement("label"); l.className = "check"; l.style.cssText = "flex:1;min-width:0;margin:0";
+    const c = document.createElement("input"); c.type = "checkbox"; c.checked = have.has(d.id) || (d.username && have.has(d.username));
+    c.addEventListener("change", () => {
+      if (c.checked) cfg.channels.push({ channel: d.id, title: d.title, kind: d.kind, enabled: true, limit: 50, types: ["video"], tags: [], keywords: [], exclude: [] });
+      else cfg.channels = cfg.channels.filter((x) => String(x.channel) !== d.id && (!d.username || x.channel !== d.username));
+      renderChannels(); renderTips(); save();
+    });
+    const name = document.createElement("span"); name.style.cssText = "overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
+    name.textContent = d.title;
+    l.append(c, name);
+    const meta = lbl(`${d.kind}${d.username ? " · @" + d.username : ""}${d.members ? " · " + d.members + " 人" : ""}`);
+    const pv = document.createElement("button"); pv.className = "btn"; pv.textContent = "看看内容"; pv.style.padding = "3px 10px";
+    const res = lbl("");
+    pv.addEventListener("click", async () => {
+      pv.disabled = true; res.textContent = "读取中…";
+      const p = await api.preview_dialog(d.id);
+      pv.disabled = false;
+      if (!p.ok) { res.textContent = p.error; return; }
+      const c2 = p.counts;
+      res.textContent = `最近 100 条：🎬 ${c2.video} 视频 · 🖼 ${c2.photo} 图片 · 📝 ${c2.text} 文字` + (p.samples.length ? ` ｜ ${p.samples.join(" / ")}` : "");
+    });
+    r.append(l, meta, pv);
+    box.append(r, res);
+    res.style.cssText = "display:block;margin:2px 0 6px 28px;font-size:12px";
+  }
+}
+$("#btnLoadDialogs").addEventListener("click", (e) => busy(e.target, async () => {
+  $("#dlgInfo").textContent = "正在读取…（群多的话要等十几秒）";
+  const r = await api.list_dialogs();
+  if (!r.ok) { $("#dlgInfo").textContent = r.error; return; }
+  dialogs = r.dialogs;
+  renderDialogs();
+}));
+$("#dlgSearch").addEventListener("input", renderDialogs);
+$("#dlgFilter").addEventListener("change", renderDialogs);
 $("#btnAddCh").addEventListener("click", () => {
-  cfg.channels.push({ channel: "", limit: 20 });
+  cfg.channels.push({ channel: "", limit: 50, enabled: true, types: ["video"], tags: [], keywords: [], exclude: [] });
   renderChannels();
-  $("#chBody tr:last-child input").focus();
+  const ins = $$("#chList input[type=text]"); if (ins.length >= 4) ins[ins.length - 4].focus();
 });
 
 // ---------- 账号 ----------
@@ -790,7 +944,7 @@ function renderTips() {
   const tips = [];
   if (!cfg.telegram.api_id || !cfg.telegram.api_hash) tips.push(["填写 Telegram 的 api_id 和 api_hash", "account"]);
   if (!authorized) tips.push(["登录 Telegram 账号", "account"]);
-  if (!cfg.channels.some((c) => c.channel)) tips.push(["添加至少一个频道", "channels"]);
+  if (!cfg.channels.some((c) => c.channel && c.enabled !== false)) tips.push(["选择至少一个群组或频道", "channels"]);
   $("#setupTips").classList.toggle("hidden", !tips.length);
   $("#tipList").replaceChildren(...tips.map(([t, p], i) => {
     const d = document.createElement("div"); d.className = "row";
@@ -944,6 +1098,185 @@ async function pollBot() {
   $("#botStats").textContent = `收到 ${st.total || 0}，留下 ${st.keep || 0}${cats ? "（" + cats + "）" : ""}，跳过 ${st.drop || 0}，待确认 ${b.pending || 0}`;
   $("#botErr").textContent = b.error || "";
 }
+
+// ---------- 浏览 ----------
+const KIND_ICON = { video: "🎬", photo: "🖼", text: "📝", file: "📄", audio: "🎵" };
+let bvDialogs = [], bvCur = null, bvKind = "all", bvItems = [], bvNext = 0, bvLoading = false, lbIdx = -1;
+const fmtSize = (n) => !n ? "" : n > 1048576 ? (n / 1048576).toFixed(1) + " MB" : (n / 1024).toFixed(0) + " KB";
+const fmtDur = (s) => !s ? "" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+
+async function loadBrowseDialogs() {
+  $("#bvDialogs").innerHTML = '<div class="empty">读取中…</div>';
+  const r = await api.list_dialogs(true);
+  if (!r.ok) { $("#bvDialogs").innerHTML = ""; $("#bvDialogs").append(Object.assign(document.createElement("div"), { className: "empty", textContent: r.error })); return; }
+  bvDialogs = r.dialogs; renderBrowseDialogs();
+}
+let avaQueue = [], avaBusy = 0;
+function pumpAvatars() {
+  while (avaBusy < 4 && avaQueue.length) {
+    const [id, el] = avaQueue.shift(); avaBusy++;
+    api.dialog_avatar(id).then((u) => { if (u) el.innerHTML = `<img src="${u}">`; }).finally(() => { avaBusy--; pumpAvatars(); });
+  }
+}
+function renderBrowseDialogs() {
+  const q = $("#bvSearch").value.trim().toLowerCase(), f = $("#bvFilter").value;
+  const list = bvDialogs.filter((d) => (f === "all" || d.kind === f) && (!q || d.title.toLowerCase().includes(q)));
+  $("#bvCount").textContent = `${bvDialogs.length} 个对话`;
+  const box = $("#bvDialogs"); box.replaceChildren(); avaQueue = [];
+  if (!list.length) box.append(Object.assign(document.createElement("div"), { className: "empty", textContent: "没有符合的对话" }));
+  list.slice(0, 300).forEach((d) => {
+    const r = document.createElement("div"); r.className = "dlg";
+    const a = document.createElement("div"); a.className = "ava"; a.textContent = (d.title || "?").slice(0, 1);
+    const n = document.createElement("div"); n.className = "nm";
+    n.innerHTML = `<b></b><span class="help"></span>`;
+    n.querySelector("b").textContent = d.title;
+    n.querySelector("span").textContent = d.kind + (d.username ? " · @" + d.username : "") + (d.unread ? ` · ${d.unread} 条未读` : "");
+    const go = document.createElement("span"); go.textContent = "›"; go.style.cssText = "font-size:22px;color:var(--muted)";
+    r.append(a, n, go);
+    r.addEventListener("click", () => openGroup(d));
+    box.append(r);
+    avaQueue.push([d.id, a]);
+  });
+  pumpAvatars();
+}
+$("#bvSearch").addEventListener("input", renderBrowseDialogs);
+$("#bvFilter").addEventListener("change", renderBrowseDialogs);
+$("#bvReload").addEventListener("click", loadBrowseDialogs);
+$("nav button[data-page=browse]").addEventListener("click", () => { if (!bvDialogs.length) loadBrowseDialogs(); });
+
+function openGroup(d) {
+  bvCur = d; $("#bvTitle").textContent = d.title;
+  $("#bvList").classList.add("hidden"); $("#bvGroup").classList.remove("hidden");
+  $("#bvQ").value = ""; setKind("all");
+  const added = cfg.channels.some((c) => String(c.channel) === d.id || (d.username && c.channel === d.username));
+  $("#bvAddGrab").textContent = added ? "✓ 已在抓取列表" : "＋ 加入抓取列表";
+  $("#bvAddGrab").disabled = added;
+}
+$("#bvBack").addEventListener("click", () => { $("#bvGroup").classList.add("hidden"); $("#bvList").classList.remove("hidden"); });
+$("#bvAddGrab").addEventListener("click", () => {
+  const d = bvCur;
+  cfg.channels.push({ channel: d.id, title: d.title, kind: d.kind, enabled: true, limit: 50, types: ["video"], tags: [], keywords: [], exclude: [] });
+  save(); renderChannels(); renderTips();
+  $("#bvAddGrab").textContent = "✓ 已在抓取列表"; $("#bvAddGrab").disabled = true;
+  toast("已加入，可以到「群组」页设置要抓的类型和标签");
+});
+function setKind(k) {
+  bvKind = k;
+  $$("#bvTabs button").forEach((b) => b.classList.toggle("on", b.dataset.k === k));
+  loadItems(true);
+}
+$$("#bvTabs button").forEach((b) => b.addEventListener("click", () => setKind(b.dataset.k)));
+$("#bvQ").addEventListener("keydown", (e) => { if (e.key === "Enter") loadItems(true); });
+
+async function loadItems(reset) {
+  if (bvLoading) return;
+  bvLoading = true;
+  if (reset) { bvItems = []; bvNext = 0; $("#bvItems").replaceChildren(); }
+  $("#bvInfo").textContent = "读取中…（第一次读取缩略图稍慢）";
+  $("#bvMore").classList.add("hidden");
+  const r = await api.browse_list(bvCur.id, bvKind, $("#bvQ").value.trim(), bvNext);
+  bvLoading = false;
+  if (!r.ok) { $("#bvInfo").textContent = r.error; return; }
+  const start = bvItems.length;
+  bvItems.push(...r.items); bvNext = r.next_offset;
+  r.items.forEach((it, j) => $("#bvItems").append(itemRow(it, start + j)));
+  $("#bvInfo").textContent = `${bvItems.length} 项` + (bvNext ? "（往下滑加载更多）" : "");
+  $("#bvMore").classList.toggle("hidden", !bvNext);
+  if (!bvItems.length) $("#bvItems").append(Object.assign(document.createElement("div"), { className: "empty", textContent: "这个分类里没有内容" }));
+}
+$("#bvMore").addEventListener("click", () => loadItems(false));
+$("main").addEventListener("scroll", () => {
+  const m = $("main");
+  if (!$("#page-browse").classList.contains("on") || $("#bvGroup").classList.contains("hidden")) return;
+  if (bvNext && !bvLoading && m.scrollTop + m.clientHeight > m.scrollHeight - 300) loadItems(false);
+});
+
+function itemRow(it, idx) {
+  const r = document.createElement("div"); r.className = "it"; r.dataset.id = it.id;
+  const th = document.createElement("div"); th.className = "th";
+  if (it.thumb) {
+    const im = document.createElement("img"); im.src = it.thumb; im.title = "点击放大";
+    im.addEventListener("click", () => openLb(idx)); th.append(im);
+  } else th.textContent = KIND_ICON[it.kind] || "📄";
+  if (it.kind === "video" && it.duration) th.append(Object.assign(document.createElement("span"), { className: "dur", textContent: fmtDur(it.duration) }));
+  const bd = document.createElement("div"); bd.className = "bd";
+  const b = document.createElement("b"); b.textContent = it.kind === "text" ? "📝 文字" : it.name;
+  const tx = document.createElement("div"); tx.className = "tx"; tx.textContent = it.kind === "text" ? it.text : (it.text && it.text !== it.name ? it.text : "");
+  const meta = lbl([fmtSize(it.size), it.date].filter(Boolean).join(" · "));
+  bd.append(b, tx, meta);
+  const act = document.createElement("div"); act.className = "act";
+  setRowState(act, it);
+  r.append(th, bd, act);
+  return r;
+}
+function setRowState(act, it) {
+  act.replaceChildren();
+  if (it.downloaded) { act.append(Object.assign(document.createElement("span"), { className: "done", textContent: "✓ 已下载" })); return; }
+  if (it._loading) { act.append(Object.assign(document.createElement("span"), { className: "help", textContent: "下载中…" })); return; }
+  const btn = document.createElement("button"); btn.className = "btn"; btn.textContent = it.kind === "text" ? "保存" : "下载";
+  btn.addEventListener("click", () => downloadItems([it]));
+  act.append(btn);
+}
+function refreshRows(ids) {
+  for (const it of bvItems) if (ids.includes(it.id)) {
+    const row = $(`#bvItems .it[data-id="${it.id}"] .act`); if (row) setRowState(row, it);
+  }
+}
+async function downloadItems(list, play = false) {
+  list = list.filter((it) => !it.downloaded);
+  if (!list.length) return toast("都已经下载过了");
+  const r = await api.browse_download(bvCur.id, list.map((it) => it.id), play);
+  if (!r.ok) return toast(r.error);
+  list.forEach((it) => (it._loading = true)); refreshRows(list.map((it) => it.id));
+  toast(`开始下载 ${list.length} 项，进度在「运行」页`);
+  const t = setInterval(async () => {
+    const p = await api.poll(logNext); if (p.running) return;
+    clearInterval(t);
+    const d = await api.browse_done();
+    list.forEach((it) => { it._loading = false; if ((d.ids || []).includes(it.id) || it.kind === "text") it.downloaded = true; });
+    refreshRows(list.map((it) => it.id));
+  }, 1500);
+}
+$("#bvAll").addEventListener("click", () => {
+  const list = bvItems.filter((it) => !it.downloaded);
+  if (!list.length) return toast("当前列表都已经下载过了");
+  if (confirm(`下载当前列表里的 ${list.length} 项？`)) downloadItems(list);
+});
+
+// 放大预览
+async function openLb(idx) {
+  const withThumb = (i) => bvItems[i] && bvItems[i].thumb;
+  if (!withThumb(idx)) return;
+  lbIdx = idx; const it = bvItems[idx];
+  $("#lb").classList.remove("hidden");
+  $("#lbImg").src = it.thumb;  // 先显示小图，大图到了再替换
+  $("#lbCap").textContent = (it.text || it.name || "") + (it.size ? `（${fmtSize(it.size)}）` : "");
+  $("#lbPlay").classList.toggle("hidden", it.kind !== "video");
+  $("#lbDl").textContent = it.downloaded ? "✓ 已下载" : "下载"; $("#lbDl").disabled = !!it.downloaded;
+  if (!it._big) {
+    const r = await api.browse_preview(bvCur.id, it.id);
+    if (r.ok && r.img) it._big = r.img;
+  }
+  if (lbIdx === idx && it._big) $("#lbImg").src = it._big;
+}
+function lbStep(d) {
+  let i = lbIdx;
+  do { i += d; } while (i >= 0 && i < bvItems.length && !bvItems[i].thumb);
+  if (i >= 0 && i < bvItems.length) openLb(i);
+}
+const closeLb = () => { $("#lb").classList.add("hidden"); lbIdx = -1; };
+$("#lbX").addEventListener("click", closeLb);
+$("#lb").addEventListener("click", (e) => { if (e.target.id === "lb") closeLb(); });
+$("#lbPrev").addEventListener("click", () => lbStep(-1));
+$("#lbNext").addEventListener("click", () => lbStep(1));
+$("#lbDl").addEventListener("click", () => { const it = bvItems[lbIdx]; if (it) downloadItems([it]); closeLb(); });
+$("#lbPlay").addEventListener("click", () => { const it = bvItems[lbIdx]; if (it) downloadItems([it], true); closeLb(); });
+document.addEventListener("keydown", (e) => {
+  if (lbIdx < 0) return;
+  if (e.key === "Escape") closeLb();
+  if (e.key === "ArrowLeft") lbStep(-1);
+  if (e.key === "ArrowRight") lbStep(1);
+});
 
 let logNext = 0;
 let polling = false;
