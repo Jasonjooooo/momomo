@@ -13,7 +13,7 @@ const MISS_AFTER = 10;      // 跟回关助手一致：到点 10 分钟还没发
 const FOLLOW_AFTER = 10;    // 帖子发出后多久开始回评论
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 
-const KINDS = { prep: "准备素材", post: "发帖", talk: "互动", review: "复盘", other: "其他" };
+const KINDS = { prep: "准备素材", post: "发帖", talk: "互动", review: "复盘", other: "其他", follow: "关注" };
 const ACTIONS_LIST = {
   none: "不要按钮",
   sched: "打开发帖排期表",
@@ -40,8 +40,9 @@ const DEFAULT_STEPS = [
   { id: "reply1", t: "12:30", kind: "talk", idle: true, title: "自动回复 第 1 轮", dur: "约 40 分钟", items: [], action: { type: "xrf", count: 30, tab: "为你推荐" } },
   { id: "reply2", t: "19:00", kind: "talk", idle: true, title: "自动回复 第 2 轮", dur: "约 40 分钟", items: [], action: { type: "xrf", count: 30, tab: "正在关注" } },
   { id: "inbox", t: "22:00", kind: "talk", title: "亲手回评论和私信", dur: "30 分钟", items: ["先点「抓取最新评论」，再一条条回", "真人互动最涨粉，这步别用自动回复"], action: { type: "inbox" } },
+  { id: "follow", follow: true, mode: "repeat", every: 20, from: toMin("10:00"), to: toMin("22:40"), kind: "follow", title: "关注新人", dur: "1 分钟", items: ["打开互关池，连按 F 关注，一轮 15 个"], action: { type: "pool" }, notify: false },
   { id: "wrap", t: "23:00", kind: "review", title: "收尾", dur: "10 分钟", items: ["看看明天的排期写满没有，没写的先挑好素材"], action: { type: "sched" } },
-].map((s) => normStep({ ...s, t: toMin(s.t) }));
+].map((s) => normStep({ ...s, t: s.t != null ? toMin(s.t) : undefined }));
 
 /* 补全缺的字段，修正不合理的值（读存储、保存前都过一遍） */
 function normStep(s) {
@@ -62,7 +63,10 @@ function normStep(s) {
     idle: !!s.idle,
     notify: s.notify !== false,
     custom: !!s.custom,
+    follow: !!s.follow,      // 关注新人：每一格的关注数由回关助手自动统计
   };
+  if (n.follow) { n.mode = "repeat"; n.kind = "follow"; n.action = { type: "pool" }; }
+  else if (n.kind === "follow") n.kind = "talk";
   if (!ACTIONS_LIST[n.action.type]) n.action.type = "none";
   if (n.action.type === "xrf") {
     n.action.count = Math.max(1, Math.min(500, Math.round(Number(n.action.count) || 30)));
@@ -99,13 +103,24 @@ function everyText(m) {
   return `${m} 分钟`;
 }
 
-/* 读存储里的步骤；第一次用就是默认步骤（旧版拖动过的时间会带过来） */
+/* 读存储里的步骤；第一次用就是默认步骤（旧版拖动过的时间会带过来）。
+ * 1.3 之前「关注新人」是固定显示的，第一次读到时把它变成一个普通步骤（用旧的显示时段），之后删了就不再加回来 */
 function loadSteps(v) {
-  if (Array.isArray(v.wfSteps)) return v.wfSteps.map(normStep);
-  const times = v.wfTimes || {};
-  return DEFAULT_STEPS.map((s) => normStep({ ...s, t: Number.isFinite(times[s.id]) ? times[s.id] : s.t }));
+  let steps;
+  if (Array.isArray(v.wfSteps)) steps = v.wfSteps.map(normStep);
+  else {
+    const times = v.wfTimes || {};
+    steps = DEFAULT_STEPS.filter((s) => !s.follow).map((s) => normStep({ ...s, t: Number.isFinite(times[s.id]) ? times[s.id] : s.t }));
+  }
+  if (!v.wfFollowMigrated && !steps.some((s) => s.follow)) {
+    const old = { ...FOLLOW_DEF, ...(v.wfFollow || {}) };
+    if (old.on !== false) {
+      const f = DEFAULT_STEPS.find((s) => s.follow);
+      steps.push(normStep({ ...f, from: old.start * 60, to: Math.max(old.start * 60, old.end * 60 - f.every) }));
+    }
+  }
+  return steps;
 }
 
-/* 关注新人的轮次：每轮间隔跟回关助手的「定时提醒我去找互关帖」一致（建议选每 20 分钟） */
+/* 旧版（1.2 及以前）「关注新人」的显示时段，只用来升级 */
 const FOLLOW_DEF = { on: true, start: 10, end: 23 };
-const roundGap = (min) => ([10, 15, 20, 30, 60].includes(Number(min)) ? Number(min) : 20);

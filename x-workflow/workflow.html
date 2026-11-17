@@ -244,16 +244,12 @@
     <div class="pool-round" id="pool-round"></div>
     <ol class="pool-top" id="pool-top" aria-label="池子里最容易回关的人"></ol>
     <p class="pool-warn" id="pool-warn" hidden></p>
-    <div class="pool-set">
-      <span>关注轮次显示在时间线上：</span>
-      <select id="f-start" aria-label="开始时间"></select><span>到</span><select id="f-end" aria-label="结束时间"></select>
-      <label><input type="checkbox" id="f-on"> 显示</label>
-    </div>
+    <div class="pool-set" id="pool-set"></div>
   </section>
 
   <nav class="days" id="days" aria-label="选择日期"></nav>
   <div class="hint" id="hint">
-    <span>圆点：步骤，按住上下拖改时间；橙色方点：排期表里的帖子；菱形：每小时的关注轮次和重复动作，重复动作做完点一下那一格打勾。</span>
+    <span>圆点：步骤，按住上下拖改时间；橙色方点：排期表里的帖子；菱形：每小时的关注轮次和重复动作，重复动作做完点一下那一格打勾。关注轮次也是一个步骤，在「编辑步骤」里能改时间或删掉。</span>
     <button type="button" id="edit-on">编辑步骤</button>
     <label><input type="checkbox" id="notify"> 到点弹提醒</label>
   </div>
@@ -271,7 +267,7 @@
   <div class="body">
     <label class="f">名称<input type="text" id="d-title" maxlength="40"></label>
     <div class="f">怎么安排
-      <span class="seg" role="group"><button type="button" id="d-once" aria-pressed="true">只做一次</button><button type="button" id="d-rep" aria-pressed="false">重复做</button></span>
+      <span class="seg" role="group" id="d-seg"><button type="button" id="d-once" aria-pressed="true">只做一次</button><button type="button" id="d-rep" aria-pressed="false">重复做</button></span>
       <div class="row2" id="d-oncebox"><label class="f">开始时间<input type="time" id="d-t" step="300"></label><label class="f">大概多久<input type="text" id="d-dur" placeholder="比如 30 分钟"></label></div>
       <div class="box" id="d-repbox" hidden>
         <div class="line">每隔 <select id="d-every"></select><input type="number" id="d-every-n" min="5" max="720" step="5" hidden aria-label="自己填几分钟"><span id="d-every-u" hidden>分钟</span> 做一次</div>
@@ -281,10 +277,11 @@
         <div class="chips" id="d-chips"></div>
       </div>
     </div>
-    <div class="f">类型（决定颜色）<div class="kinds" id="d-kinds"></div></div>
+    <p class="note2" id="d-follownote" hidden>每一格关注了几个人由回关助手自动统计，不用打勾。间隔最好和回关助手的「定时提醒我去找互关帖」一样。不想要关注轮次，点下面的「删除这一步」。</p>
+    <div class="f" id="d-kindbox">类型（决定颜色）<div class="kinds" id="d-kinds"></div></div>
     <label class="f">要做的事<small>一行一条</small><textarea id="d-items"></textarea></label>
     <label class="f">用的工具<small>选填，显示成卡片下面的小标签</small><input type="text" id="d-tool" maxlength="40"></label>
-    <div class="f">卡片上的按钮<select id="d-action"></select>
+    <div class="f" id="d-actionbox">卡片上的按钮<select id="d-action"></select>
       <label class="f" id="d-urlbox" hidden>网址<input type="url" id="d-url" placeholder="https://"></label>
       <div class="box" id="d-xrfbox" hidden>
         <div class="line">这一轮回复 <input type="number" id="d-count-n" min="1" max="500"> 条</div>

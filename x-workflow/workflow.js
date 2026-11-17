@@ -12,18 +12,18 @@ const STALE_MS = 3 * 60000;   // 另外两个插件每分钟发一次数据；3 
 const DRAG_STEP = 5, PX_PER_MIN = 1.2;
 
 const S = {
-  day: today(), steps: [], editing: false, notify: true, follow: { ...FOLLOW_DEF }, done: {}, runs: {}, openLogs: new Set(), dragging: false,
+  day: today(), steps: [], editing: false, notify: true, done: {}, runs: {}, openLogs: new Set(), dragging: false,
   hg: null, hgAt: 0, xrf: null, xrfAt: 0,
 };
 
 /* ---------- 读写存储 ---------- */
 async function load() {
-  const v = await chrome.storage.local.get(["snap", "xsnap", "wfSteps", "wfTimes", "wfNotify", "wfFollow", "wfDone", "wfRuns"]);
+  const v = await chrome.storage.local.get(["snap", "xsnap", "wfSteps", "wfTimes", "wfNotify", "wfFollow", "wfFollowMigrated", "wfDone", "wfRuns"]);
   S.hg = v.snap || null; S.hgAt = (v.snap && v.snap.at) || 0;
   S.xrf = v.xsnap || null; S.xrfAt = (v.xsnap && v.xsnap.at) || 0;
   S.steps = loadSteps(v);
+  if (!v.wfFollowMigrated) await chrome.storage.local.set({ wfSteps: S.steps, wfFollowMigrated: true });   // 「关注新人」变成普通步骤，只做一次
   S.notify = v.wfNotify !== false;
-  S.follow = { ...FOLLOW_DEF, ...(v.wfFollow || {}) };
   S.done = v.wfDone || {};
   S.runs = v.wfRuns || {};
 }
@@ -111,8 +111,11 @@ function renderPool() {
   if (!p.top.length) ol.append(el("li", null, "池子是空的：打开几条互关帖，绿色「容易回关」的人会自动进池。"));
   p.top.forEach((x) => { const li = el("li"); li.title = "@" + x.handle; li.append(el("b", null, x.name || "@" + x.handle), el("small", null, `${x.fo} 粉 / ${x.fr} 关`)); ol.append(li); });
   const rm = H("remindMin", 0), w = $("#pool-warn");
-  w.hidden = !(H("remindOn", true) && rm && rm !== 20);
-  w.textContent = `回关助手现在每 ${rm} 分钟提醒一次。想每 20 分钟一轮：在 X 首页回关助手面板 →「设置」→「定时提醒我去找互关帖」选「每 20 分钟」。时间线按 ${roundGap(rm)} 分钟一轮显示。`;
+  const fs = S.steps.find((s) => s.follow);
+  w.hidden = !(fs && H("remindOn", true) && rm && rm !== fs.every);
+  if (fs) w.textContent = `回关助手现在每 ${rm} 分钟提醒一次，时间线上的「关注新人」是每 ${everyText(fs.every)}一轮。想一致：在 X 首页回关助手面板 →「设置」→「定时提醒我去找互关帖」选「每 ${fs.every} 分钟」，或者在「编辑步骤」里改「关注新人」。`;
+  $("#pool-set").textContent = fs ? `时间线上的「关注新人」：每 ${everyText(fs.every)}一轮，${fmt(fs.from)}–${fmt(fs.to)}，${daysText(fs.days)}。在「编辑步骤」里能改时间或删掉。`
+    : "时间线上没有「关注新人」轮次。想加回来：「编辑步骤」→「恢复默认步骤」，或者加一个重复做的步骤。";
 }
 
 function renderDays() {
@@ -289,8 +292,7 @@ function postNode(p, n) {
 /* ---------- 每小时一行：关注轮次 + 重复动作（合并） ---------- */
 function hourRows(steps) {
   const map = new Map();
-  const get = (h) => { if (!map.has(h)) map.set(h, { h, follow: false, reps: [] }); return map.get(h); };
-  if (S.follow.on && S.hgAt) for (let h = S.follow.start; h < S.follow.end; h++) get(h).follow = true;
+  const get = (h) => { if (!map.has(h)) map.set(h, { h, reps: [] }); return map.get(h); };
   steps.filter((s) => s.mode === "repeat").forEach((s) => {
     const byHour = {};
     occurrences(s).forEach((m) => { (byHour[Math.floor(m / 60)] ||= []).push(m); });
@@ -304,22 +306,22 @@ function hourNode(row) {
   const ax = el("div", "axis"); ax.append(el("span", "dot"));
   const c = el("div", "card");
   const isToday = S.day === today(), n = nowMin(), dayStart = new Date(S.day + "T00:00:00").getTime();
-  if (row.follow) {
+  row.reps.filter((x) => x.s.follow).forEach(({ s, ms }) => {
+    /* 关注新人：每一格这段时间关注了几个人（回关助手记的关注时间），自动统计，不用打勾 */
     const g = el("div", "grp k-follow");
-    const gap = roundGap(H("remindMin", 20));
-    g.append(el("span", "gname", "关注新人"), el("span", "gsub", `每 ${gap} 分钟一轮，一轮 ${H("roundTarget", 15)} 个`));
+    g.append(el("span", "gname", s.title), el("span", "gsub", `每 ${everyText(s.every)}一轮，一轮 ${H("roundTarget", 15)} 个`));
     const times = H("followTimes", []) || [];
-    for (let m = row.h * 60; m < row.h * 60 + 60; m += gap) {
-      const a = dayStart + m * 60000, b = a + gap * 60000;
+    ms.forEach((m) => {
+      const a = dayStart + m * 60000, b = a + s.every * 60000;
       const cnt = times.filter((x) => x >= a && x < b).length;
       let cls = "slot", txt = fmt(m);
-      if (isToday && n >= m && n < m + gap) { cls += " cur"; txt += cnt ? ` · 已关 ${cnt}` : " · 现在"; }
-      else if ((isToday && n >= m + gap) || S.day < today()) { if (cnt) { cls += " ok"; txt += ` ✓ ${cnt}`; } else cls += " skip"; }
+      if (isToday && n >= m && n < m + s.every) { cls += " cur"; txt += cnt ? ` · 已关 ${cnt}` : " · 现在"; }
+      else if ((isToday && n >= m + s.every) || S.day < today()) { if (cnt) { cls += " ok"; txt += ` ✓ ${cnt}`; } else cls += " skip"; }
       g.append(el("span", cls, txt));
-    }
+    });
     c.append(g);
-  }
-  row.reps.forEach(({ s, ms }) => {
+  });
+  row.reps.filter((x) => !x.s.follow).forEach(({ s, ms }) => {
     const g = el("div", `grp k-${s.kind}`);
     g.append(el("span", "gname", s.title), el("span", "gsub", `每 ${everyText(s.every)}` + (s.dur ? `，约 ${s.dur}` : "")));
     const done = ((S.done[S.day] || {})[s.id]) || [];
@@ -404,7 +406,7 @@ function setupDlg() {
 }
 function openDlg(s, t) {
   const n = s || normStep({ title: "", kind: "other", t: t != null ? t : 9 * 60, from: t != null ? t : 10 * 60, to: Math.min(DAY_END - 5, (t != null ? t : 10 * 60) + 12 * 60), custom: true, dur: "" });
-  D.step = s; D.mode = n.mode; D.kind = n.kind; D.days = [...n.days];
+  D.step = s; D.mode = n.mode; D.kind = n.kind; D.days = [...n.days]; D.follow = !!n.follow;
   $("#dlg-t").textContent = s ? "编辑步骤" : "加一步";
   $("#d-title").value = s ? n.title : "";
   $("#d-t").value = fmt(n.t); $("#d-dur").value = n.dur; $("#d-dur2").value = n.dur;
@@ -428,6 +430,8 @@ function openDlg(s, t) {
 }
 function closeDlg() { $("#shade").hidden = true; $("#dlg").hidden = true; D.step = null; }
 function paintDlg() {
+  $("#d-seg").hidden = D.follow; $("#d-kindbox").hidden = D.follow; $("#d-actionbox").hidden = D.follow; $("#d-follownote").hidden = !D.follow;
+  document.querySelectorAll("#d-kinds button").forEach((b) => { b.hidden = b.dataset.k === "follow"; });
   $("#d-once").setAttribute("aria-pressed", String(D.mode === "once"));
   $("#d-rep").setAttribute("aria-pressed", String(D.mode === "repeat"));
   $("#d-oncebox").hidden = D.mode !== "once"; $("#d-repbox").hidden = D.mode !== "repeat";
@@ -528,26 +532,14 @@ async function start() {
   });
   $("#toast-undo").addEventListener("click", async () => { const f = undoFn; $("#toast").hidden = true; undoFn = null; if (f) await f(); });
   $("#notify").addEventListener("change", (e) => chrome.storage.local.set({ wfNotify: e.target.checked }));
-  for (const id of ["f-start", "f-end"]) {
-    const sel = $("#" + id);
-    for (let h = id === "f-start" ? 0 : 1; h <= (id === "f-start" ? 23 : 24); h++) sel.append(new Option(pad(h) + ":00", String(h)));
-  }
-  const saveFollow = () => {
-    const s = Number($("#f-start").value); let e = Number($("#f-end").value);
-    if (e <= s) e = Math.min(24, s + 1);
-    $("#f-end").value = String(e);
-    chrome.storage.local.set({ wfFollow: { on: $("#f-on").checked, start: s, end: e } });
-  };
-  ["f-start", "f-end", "f-on"].forEach((id) => $("#" + id).addEventListener("change", saveFollow));
   setupDlg();
   await load();
   $("#notify").checked = S.notify;
-  $("#f-start").value = String(S.follow.start); $("#f-end").value = String(S.follow.end); $("#f-on").checked = S.follow.on;
   render();
   chrome.runtime.sendMessage({ type: "pull" }).catch(() => {});      // 打开页面时让另外两个插件马上发一次最新数据
   let lastSched = JSON.stringify(H("schedule", {}));
   chrome.storage.onChanged.addListener(async (ch, area) => {
-    if (area !== "local" || !["snap", "xsnap", "wfSteps", "wfFollow", "wfDone", "wfRuns", "wfNotify"].some((k) => ch[k])) return;
+    if (area !== "local" || !["snap", "xsnap", "wfSteps", "wfDone", "wfRuns", "wfNotify"].some((k) => ch[k])) return;
     if (S.dragging) return;          // 正在拖动时不打断，松手后会重新画
     await load();
     if (!$("#dlg").hidden) { renderTop(); renderPool(); return; }   // 编辑面板开着时不重画时间线
