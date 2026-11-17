@@ -7,7 +7,7 @@ import re
 import time
 from pathlib import Path
 
-from .config import resolve
+from .config import folder, resolve
 from .runtime import Cancelled, UserError, check_stop, log, progress
 from .state import State
 
@@ -159,8 +159,7 @@ async def download_with_client(client, cfg: dict, state: State) -> int:
     if not cfg["channels"]:
         raise UserError("还没有添加任何频道")
 
-    dl_root = resolve(cfg, cfg["paths"]["downloads"])
-    dl_root.mkdir(parents=True, exist_ok=True)
+    dl_root = folder(cfg, "downloads")
     rules = cfg["download"]
     parallel = max(1, min(8, int(rules.get("concurrency") or 3)))
 

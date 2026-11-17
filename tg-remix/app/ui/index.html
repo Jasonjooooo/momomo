@@ -188,6 +188,15 @@ td.del button:hover { background: var(--input); color: var(--err); }
     </div>
   </div>
 
+  <div class="card" id="dirsCard">
+    <h3>文件夹 <span class="hint">下载的素材和做好的成品放在哪里。可以选移动硬盘，用的时候插着就行</span></h3>
+    <div class="row"><label>下载到</label><div class="file"><span class="path" id="dirDownloads"></span>
+      <button class="btn" data-setdir="downloads">更改…</button><button class="btn" data-resetdir="downloads">恢复默认</button><button class="btn" data-open="downloads">打开</button></div></div>
+    <div class="row" style="margin-bottom:0"><label>成品存到</label><div class="file"><span class="path" id="dirOutput"></span>
+      <button class="btn" data-setdir="output">更改…</button><button class="btn" data-resetdir="output">恢复默认</button><button class="btn" data-open="output">打开</button></div></div>
+    <div class="msg" id="dirMsg"></div>
+  </div>
+
   <div class="card">
     <h3>试效果 <span class="hint">选一个视频，只处理前 15 秒，完成后自动播放，不影响正式记录</span></h3>
     <div class="row"><label>模拟帖子文字</label><input type="text" id="testText" placeholder="可选：填一句话，用来试「自动标题」和「AI 解说」的效果"></div>
@@ -604,7 +613,39 @@ $$("[data-clear]").forEach((b) => b.addEventListener("click", () => {
   setPath(cfg, b.dataset.clear, "");
   bindForm(); save();
 }));
-$$("[data-open]").forEach((b) => b.addEventListener("click", () => api.open_folder(b.dataset.open)));
+$$("[data-open]").forEach((b) => b.addEventListener("click", async () => {
+  const r = await api.open_folder(b.dataset.open);
+  if (r && !r.ok) toast(r.error);
+}));
+
+// ---------- 下载 / 成品文件夹 ----------
+const DIR_NAME = { downloads: "下载文件夹", output: "成品文件夹" };
+function paintDirs(paths) {
+  for (const [k, id] of [["downloads", "#dirDownloads"], ["output", "#dirOutput"]]) {
+    const p = paths[k], el = $(id);
+    el.textContent = p.show + (p.default ? "（默认）" : "") + (p.missing_disk ? "  ⚠️ 磁盘没插" : "");
+    el.title = p.path;
+    el.style.color = p.missing_disk ? "var(--err)" : "";
+    $(`[data-resetdir="${k}"]`).classList.toggle("hidden", p.default);
+  }
+}
+async function loadDirs() { const r = await api.get_paths(); if (r.ok) paintDirs(r.paths); }
+async function setDir(which, path) {
+  const msg = $("#dirMsg");
+  const r = await api.set_path(which, path);
+  if (!r.ok) { msg.className = "msg err"; msg.textContent = r.error; return; }
+  paintDirs(r.paths);
+  msg.className = "msg ok";
+  if (!r.changed) { msg.textContent = `${DIR_NAME[which]}没变。`; return; }
+  msg.textContent = which === "downloads"
+    ? `✓ 以后下载的会放到新文件夹。原来下载的还在旧文件夹（${r.old}），「只处理」只看新文件夹，原来没处理完的想接着做，把它们搬过来就行。`
+    : `✓ 以后做好的成品会放到新文件夹。原来的成品还在旧文件夹（${r.old}），不会自动搬。`;
+}
+$$("[data-setdir]").forEach((b) => b.addEventListener("click", async () => {
+  const p = await api.pick("folder");
+  if (p) setDir(b.dataset.setdir, p);
+}));
+$$("[data-resetdir]").forEach((b) => b.addEventListener("click", () => setDir(b.dataset.resetdir, "")));
 $$("[data-url]").forEach((a) => a.addEventListener("click", () => api.open_url(a.dataset.url)));
 $("#rootLink").addEventListener("click", () => api.open_folder("root"));
 
@@ -1229,6 +1270,7 @@ async function init() {
   cfg = info.config;
   cfg.channels ||= [];
   $("#rootLink").textContent = info.root;
+  loadDirs();
   $("#ver").textContent = "版本 " + info.version;
   bindForm(); renderChannels(); renderStickers(); renderTexts(); fillAccount(); renderTips();
   setInterval(poll, 700); poll();

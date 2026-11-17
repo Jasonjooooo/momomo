@@ -15,7 +15,7 @@ from pathlib import Path
 import yaml
 
 from tgremix import runtime
-from tgremix.config import DEFAULTS, load_config, resolve
+from tgremix.config import DEFAULTS, FOLDER_NAMES, check_volume, folder, load_config, resolve
 from tgremix.runtime import Cancelled, UserError, log, stop_event
 from tgremix.state import State
 
@@ -451,7 +451,7 @@ class Api:
         self._set_status("下载选中的内容…")
         client = self._tg.run(self._tg.ensure(cfg), timeout=60)
         todo, texts = self._tg.run(browse.build_todo(client, peer_id, ids, cfg,
-                                                     resolve(cfg, cfg["paths"]["downloads"]), state), timeout=120)
+                                                     folder(cfg, "downloads"), state), timeout=120)
         log(f"—— 浏览页下载：{len(todo)} 个文件" + (f"，{texts} 条文字已存入 文字.csv" if texts else "") + " ——")
         if todo:
             self._tg.run(download_todo(client, cfg, state, todo))
@@ -527,7 +527,7 @@ class Api:
         from tgremix.processor import process_all
 
         cfg = self._cfg()
-        out_dir = resolve(cfg, cfg["paths"]["output"]) / "试效果"
+        out_dir = folder(cfg, "output") / "试效果"
         cfg["paths"]["output"] = str(out_dir)
         self._set_status("试效果：处理前 15 秒…")
         log(f"—— 试效果：{Path(path).name} ——")
@@ -601,6 +601,53 @@ class Api:
             return ""
         return str(res[0] if isinstance(res, (list, tuple)) else res)
 
+    # ------------------------------------------------------------ 下载 / 成品文件夹
+    def _paths(self, cfg: dict) -> dict:
+        out = {}
+        for k in ("downloads", "output"):
+            p = resolve(cfg, cfg["paths"][k])
+            home = str(Path.home())
+            show = "~" + str(p)[len(home):] if str(p).startswith(home + "/") else str(p)
+            out[k] = {"path": str(p), "show": show, "default": p == resolve(cfg, DEFAULTS["paths"][k]),
+                      "missing_disk": _missing_disk(p)}
+        return out
+
+    def get_paths(self) -> dict:
+        return {"ok": True, "paths": self._paths(self._cfg())}
+
+    def set_path(self, which: str, path: str) -> dict:
+        """换下载 / 成品文件夹。path 为空 = 恢复默认（数据文件夹里的 downloads / output）"""
+        if which not in FOLDER_NAMES:
+            return {"ok": False, "error": "不认识的文件夹"}
+        if self._running:
+            return {"ok": False, "error": "正在下载或处理，等停下来再改。"}
+        cfg = self._cfg()
+        default = DEFAULTS["paths"][which]
+        p = resolve(cfg, (path or "").strip() or default).resolve()
+        other_key = "output" if which == "downloads" else "downloads"
+        other = resolve(cfg, cfg["paths"][other_key]).resolve()
+        name, other_name = FOLDER_NAMES[which], FOLDER_NAMES[other_key]
+        if p == other or other in p.parents or p in other.parents:
+            return {"ok": False, "error": f"{name}和{other_name}不能是同一个，也不能一个放在另一个里面"
+                                          f"（不然做好的成品会被当成素材再处理一遍）。现在的{other_name}是：{other}"}
+        if p == Path.home() or p == Path("/"):
+            return {"ok": False, "error": "不能直接用整个用户文件夹，在里面新建一个文件夹再选。"}
+        try:
+            check_volume(p, name)
+            p.mkdir(parents=True, exist_ok=True)
+            probe = p / ".tgremix-write-test"
+            probe.write_text("ok", encoding="utf-8")
+            probe.unlink()
+        except UserError as e:
+            return {"ok": False, "error": str(e)}
+        except OSError:
+            return {"ok": False, "error": f"这个文件夹没法写入（没有权限，或者是只读的磁盘），换一个吧：{p}"}
+        old = resolve(cfg, cfg["paths"][which])
+        cfg["paths"][which] = default if p == resolve(cfg, default).resolve() else str(p)
+        self._write_cfg(cfg)
+        log(f"📁 {name}改成：{p}")
+        return {"ok": True, "paths": self._paths(cfg), "old": str(old), "changed": old.resolve() != p}
+
     def open_folder(self, which: str) -> dict:
         cfg = self._cfg()
         target = {
@@ -608,6 +655,11 @@ class Api:
             "downloads": resolve(cfg, cfg["paths"]["downloads"]),
             "logs": self._root / "logs",
         }.get(which, self._root)
+        if which in FOLDER_NAMES:
+            try:
+                check_volume(target, FOLDER_NAMES[which])
+            except UserError as e:
+                return {"ok": False, "error": str(e)}
         target.mkdir(parents=True, exist_ok=True)
         _open(target)
         return {"ok": True}
@@ -618,3 +670,9 @@ class Api:
         if url.startswith("https://"):
             webbrowser.open(url)
         return {"ok": True}
+
+
+def _missing_disk(p: Path) -> bool:
+    """文件夹在 /Volumes/xxx 上，但那个磁盘现在没插"""
+    parts = Path(p).parts
+    return len(parts) >= 3 and parts[0] == "/" and parts[1] == "Volumes" and not Path("/Volumes", parts[2]).is_dir()

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from .config import resolve
+from .config import check_volume, folder, resolve
 from .edit import build_segments, plan_shots
 from .overlays import sticker_filters, text_filters
 from . import voiceover as vo
@@ -515,6 +515,7 @@ def add_intro_outro(main: Path, out: Path, cfg: dict) -> None:
 def collect_jobs(cfg: dict) -> list[Job]:
     """downloads 目录里所有视频；有同名 .json 的是从 TG 下载的，没有的当作本地视频"""
     root = resolve(cfg, cfg["paths"]["downloads"])
+    check_volume(root, "下载文件夹")
     jobs = []
     if not root.exists():
         return jobs
@@ -595,7 +596,7 @@ def process_all(cfg: dict, state: State, redo: bool = False, limit: int | None =
         log("没有需要处理的新视频")
         return 0
 
-    out_dir = resolve(cfg, cfg["paths"]["output"]) / datetime.now().strftime("%Y-%m-%d")
+    out_dir = folder(cfg, "output") / datetime.now().strftime("%Y-%m-%d")
     ok = 0
     log(f"🎬 开始处理 {len(jobs)} 个视频 → {out_dir}")
     for i, job in enumerate(jobs, 1):

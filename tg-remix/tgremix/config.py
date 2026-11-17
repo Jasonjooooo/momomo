@@ -6,6 +6,8 @@ from pathlib import Path
 
 import yaml
 
+from .runtime import UserError
+
 DEFAULTS = {
     "telegram": {"api_id": 0, "api_hash": "", "session": "tg",
                  "proxy": {"auto": True, "type": "socks5", "host": "", "port": 0}},
@@ -105,3 +107,22 @@ def resolve(cfg: dict, p: str) -> Path:
     """相对路径以配置文件所在目录为准"""
     path = Path(p).expanduser()
     return path if path.is_absolute() else cfg["_root"] / path
+
+
+FOLDER_NAMES = {"downloads": "下载文件夹", "output": "成品文件夹"}
+
+
+def check_volume(p: Path, what: str = "文件夹") -> None:
+    """文件夹在移动硬盘 / U 盘上（/Volumes/xxx）但没插：报错，免得偷偷建在电脑硬盘上"""
+    parts = Path(p).parts
+    if len(parts) >= 3 and parts[0] == "/" and parts[1] == "Volumes" and not Path("/Volumes", parts[2]).is_dir():
+        raise UserError(f"找不到磁盘「{parts[2]}」：{what}（{p}）在移动硬盘或 U 盘上，先插上再试；"
+                        f"不用了的话，在「运行」页「文件夹」里改回来。")
+
+
+def folder(cfg: dict, key: str) -> Path:
+    """下载 / 成品文件夹：检查磁盘在不在，然后建好"""
+    p = resolve(cfg, cfg["paths"][key])
+    check_volume(p, FOLDER_NAMES.get(key, "文件夹"))
+    p.mkdir(parents=True, exist_ok=True)
+    return p
