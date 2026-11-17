@@ -450,20 +450,23 @@
   }
 
   // ---------- 主循环 ----------
-  async function start() {
+  /** opts（时间工作流启动时传）：maxPosts 这一轮回复几条，tab 从哪个首页标签开始。弹窗里点「开始」不传，用设置里的 */
+  async function start(opts = {}) {
     if (run.active) return;
     if (!alive()) return markDead();
     const { xrfCfg = {}, xrfProcessed = [] } = await store((st) => st.get(["xrfCfg", "xrfProcessed"]));
     cfg = { ...XRF_DEFAULTS, ...xrfCfg };
+    if (Number(opts.maxPosts) > 0) cfg.maxPosts = Math.round(Number(opts.maxPosts));
     const processed = new Set(xrfProcessed);
     const saveProcessed = () => store((st) => st.set({ xrfProcessed: [...processed].slice(-5000) })).catch(() => {});
-    Object.assign(run, { active: true, paused: false, stopReq: false, done: 0, failed: 0 });
+    Object.assign(run, { active: true, paused: false, stopReq: false, done: 0, failed: 0, step: "开始" });
     overlay.show();
+    publish();   // 马上告诉弹窗和时间工作流：已经开始了
     await log(`开始：最多 ${cfg.maxPosts} 条，间隔 ${cfg.minGap}–${cfg.maxGap} 秒`);
 
     try {
       // 起点：在帖子页且没处理过 → 先处理当前帖子；否则回到首页
-      run.tabIdx = 0;
+      run.tabIdx = Math.max(0, feedTabs().indexOf(opts.tab));
       const sid = statusIdFromPath();
       if (!(sid && !processed.has(sid) && !isMine(location.pathname))) await goHome();
 
@@ -613,7 +616,7 @@
   chrome.runtime.onMessage.addListener((msg, _s, reply) => {
     switch (msg?.type) {
       case "start":
-        start();
+        start(msg.opts || {});
         reply({ ok: true });
         break;
       case "pause":
