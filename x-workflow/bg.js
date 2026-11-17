@@ -123,14 +123,17 @@ chrome.runtime.onMessage.addListener((msg, _s, send) => {
   if (msg && msg.type === "hg") { toHg(msg.msg).then(send); return true; }
   if (msg && msg.type === "xrf") { toXrf(msg.msg).then(send); return true; }
   if (msg && msg.type === "tg") { toTg(msg.msg).then(send); return true; }
+  if (msg && msg.type === "run-step") { runStepNow(msg.id, msg.m).then(send); return true; }
   if (msg && msg.type === "pull") { Promise.all([toHg({ type: "wf-pull" }), toXrf({ type: "xrf-pull" }), tgPoll()]).then(() => send({ ok: true })); return true; }
   return false;
 });
 
 /* ---------- 到点自动做 ---------- */
-async function runAction(s, day) {
+/* 自动回复每一轮的记录：只做一次的步骤按步骤记；重复做的按「步骤@第几分钟」分开记，每一次都是新的一轮 */
+const runKey = (s, m) => (s.mode === "repeat" ? `${s.id}@${m}` : s.id);
+async function runAction(s, day, m) {
   const a = s.action;
-  if (a.type === "xrf") return toXrf({ type: "xrf-start", count: a.count, tab: a.tab, stepId: s.id, date: day, auto: true });
+  if (a.type === "xrf") return toXrf({ type: "xrf-start", count: a.count, tab: a.tab, stepId: runKey(s, m), date: day, auto: true });
   if (a.type === "tg") return toTg({ type: "tg-run", mode: a.mode });
   if (a.type === "inbox") return toHg({ type: "wf-inbox-fetch" });
   if (a.type === "pool") return toHg({ type: "wf-open-pool" });
@@ -156,6 +159,19 @@ function autoDue(steps, now, done) {
   }
   return out;
 }
+/* 页面上点格子：马上做这一次（没自动做成、错过了、或者自动关着的时候用） */
+async function runStepNow(id, m) {
+  const v = await chrome.storage.local.get(["wfSteps", "wfTimes", "wfV14", "wfFollowMigrated", "wfFollow", "wfAuto"]);
+  const s = loadSteps(v).find((x) => x.id === id);
+  if (!s || s.action.type === "none") return { ok: false, reason: "找不到这一步，刷新一下页面再试。" };
+  const day = dateKey(new Date());
+  const r = await runAction(s, day, m);
+  const log = v.wfAuto || {};
+  (log[day] ||= {})[`${id}|${m}`] = { at: Date.now(), m, ok: !!r.ok, manual: true, msg: r.ok ? AUTO_TEXT[s.action.type] || "已开始" : (r.reason || "没成功") };
+  await chrome.storage.local.set({ wfAuto: log });
+  return r;
+}
+
 async function autoTick(now) {
   const v = await chrome.storage.local.get(["wfSteps", "wfTimes", "wfV14", "wfFollowMigrated", "wfFollow", "wfAutoOn", "wfAutoPause", "wfAuto", "wfNotify", "wfRuns"]);
   const day = dateKey(now);
@@ -167,8 +183,8 @@ async function autoTick(now) {
     today[x.key] = { at: Date.now(), m: x.m, ok: false, msg: "正在开始…" };
     await chrome.storage.local.set({ wfAuto: log });          // 先记下，免得下一分钟又做一次
     let r;
-    if (x.s.action.type === "xrf" && ((v.wfRuns || {})[day] || {})[x.s.id]) r = { ok: false, reason: "今天这一轮已经跑过了" };
-    else r = await runAction(x.s, day);
+    if (x.s.action.type === "xrf" && ((v.wfRuns || {})[day] || {})[runKey(x.s, x.m)]) r = { ok: false, reason: "这一轮已经跑过了" };
+    else r = await runAction(x.s, day, x.m);
     today[x.key] = { at: Date.now(), m: x.m, ok: !!r.ok, msg: r.ok ? AUTO_TEXT[x.s.action.type] || "已开始" : (r.reason || "没成功") };
     await chrome.storage.local.set({ wfAuto: log });
     const late = Math.round((now.getHours() * 60 + now.getMinutes()) - x.m);

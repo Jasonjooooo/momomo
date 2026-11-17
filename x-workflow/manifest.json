@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "X 时间工作流",
   "short_name": "时间工作流",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "把一天的 X 运营排成时间线：发帖计划从「回关助手」的发帖排期表实时同步，互关池、X 自动回复流程也接在一起；步骤可以自己加、改、删，可以设重复动作，到点提醒。",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAow/FuapEo7paJKF+dLjkdI6Z0xM6Qdwjxg40g6el95fSU/pAVzsGG7f0p0Q+ldot92EqTgq0xVyIj8tZSxCiDlJC/ABW97v2wDW2gdN6xRdBO4Iu0xb74QosDVwc7bH5MP0RuZaO4yDERIoWzL+IFSg5faluMVpJl5XPh9NjVaCP2ICbofzNnT/chtku64oxYt172dPJ8VuyqX1MCNiVfkeVtquZWWO9ommrSnCxDE073VIIQ2/qRJd+CxbzoUuD22K5qc2xU0Se6IHYcKIWYy2zsYPOIYotxe7BuzDmx8e6g5d3xtIjemzQRTCBXm4z0qZvUDJyOHdJz7kRZlD9TwIDAQAB",
   "icons": { "16": "icons/icon16.png", "32": "icons/icon32.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },

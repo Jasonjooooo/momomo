@@ -95,6 +95,11 @@ function renderTop() {
   const autoSteps = S.steps.filter((s) => s.auto && s.action.type !== "none" && onDay(s, today()));
   $("#auto-meta").textContent = !S.autoOn ? "关着：到点只弹提醒，不自己做" : paused ? "今天暂停了，明天自动恢复"
     : `今天有 ${autoSteps.length} 个步骤到点自己做（卡片上标着 ⏰）。Chrome 要开着；电脑睡着错过的，10 分钟内醒来会补做`;
+  const fails = Object.entries(S.autoLog[today()] || {}).filter(([, r]) => !r.ok && r.msg !== "正在开始…").sort((a, b) => b[1].at - a[1].at);
+  if (S.autoOn && !paused && fails.length) {
+    const [k, r] = fails[0], st = S.steps.find((x) => x.id === k.split("|")[0]);
+    $("#auto-meta").textContent += `。⚠ 今天有 ${fails.length} 次没做成，最近一次：${clockHM(r.at)}「${st ? st.title : "已删除的步骤"}」${r.msg}`;
+  }
   $("#auto-pause").textContent = paused ? "恢复今天的" : "今天先暂停";
   $("#auto-pause").hidden = !S.autoOn;
 
@@ -372,7 +377,8 @@ function hourNode(row) {
     });
     c.append(g);
   });
-  row.reps.filter((x) => !x.s.follow).forEach(({ s, ms }) => {
+  row.reps.filter((x) => !x.s.follow && x.s.auto && x.s.action.type !== "none").forEach(({ s, ms }) => c.append(autoGroup(s, ms)));
+  row.reps.filter((x) => !x.s.follow && !(x.s.auto && x.s.action.type !== "none")).forEach(({ s, ms }) => {
     const g = el("div", `grp k-${s.kind}`);
     g.append(el("span", "gname", s.title), el("span", "gsub", `每 ${everyText(s.every)}` + (s.dur ? `，约 ${s.dur}` : "") + (s.auto && s.action.type !== "none" ? ` · ⏰ 到点自动${AUTO_TEXT[s.action.type] || ""}` : "")));
     const done = ((S.done[S.day] || {})[s.id]) || [];
@@ -397,6 +403,39 @@ function hourNode(row) {
   li.append(t, ax, c);
   return li;
 }
+/* 到点自动做的重复动作：每一格显示这一次自动做成了没有；没做成 / 错过的点一下马上做 */
+function autoGroup(s, ms) {
+  const g = el("div", `grp k-${s.kind}`);
+  const extra = s.action.type === "xrf" ? `，${s.action.count} 条` : "";
+  g.append(el("span", "gname", s.title), el("span", "gsub", `每 ${everyText(s.every)}${extra} · ⏰ 到点自动${AUTO_TEXT[s.action.type] || ""}`));
+  const isToday = S.day === today(), n = nowMin();
+  const log = S.autoLog[S.day] || {}, runs = S.runs[S.day] || {};
+  const autoOff = !S.autoOn || S.autoPause === S.day;
+  let lastFail = null;
+  ms.forEach((m) => {
+    const rec = log[`${s.id}|${m}`];
+    const run = s.action.type === "xrf" ? runs[`${s.id}@${m}`] : null;
+    const st = (S.xrf && S.xrf.status) || {};
+    const started = isToday && n >= m;
+    const cur = isToday && n >= m && n < m + s.every;
+    let cls = "slot", txt = fmt(m), click = null, title = "";
+    if (run && run.active && xrfOk() && st.active) { cls += " cur"; txt += ` ● 回复中 ${st.done || 0}/${st.max || s.action.count}`; }
+    else if (run && run.endAt) { cls += " ok"; txt += ` ✓ 回复 ${run.done || 0} 条`; title = run.endStep || ""; }
+    else if (rec && rec.ok) { cls += " ok"; txt += rec.manual ? " ✓ 已手动开始" : " ✓ 已自动开始"; title = rec.msg; }
+    else if (rec && rec.msg === "正在开始…" && Date.now() - rec.at < 120000) { cls += " cur"; txt += " · 正在开始…"; }
+    else if (rec) { cls += " bad"; txt += " ⚠ 没做成，点一下重试"; title = rec.msg; click = true; lastFail = { m, msg: rec.msg }; }
+    else if (cur) { cls += " cur"; txt += autoOff ? " · 自动关着，点一下开始" : " · 马上自动开始"; click = true; }
+    else if (started || S.day < today()) { cls += " skip"; txt += " · 错过了"; click = isToday; title = "这一次没有自动做（Chrome 当时没开、电脑在睡，或者自动关着）"; }
+    if (click && isToday) {
+      const b = btn(txt, cls, async () => { b.disabled = true; const r = await chrome.runtime.sendMessage({ type: "run-step", id: s.id, m }).catch(() => null); if (!r || !r.ok) showErr((r && r.reason) || "没成功"); });
+      if (title) b.title = title;
+      g.append(b);
+    } else { const sp = el("span", cls, txt); if (title) sp.title = title; g.append(sp); }
+  });
+  if (lastFail) g.append(el("p", "autofail", `⚠ ${fmt(lastFail.m)} 那次没做成：${lastFail.msg}`));
+  return g;
+}
+
 async function toggleDone(id, m) {
   const d = (S.done[S.day] ||= {}); const arr = (d[id] ||= []);
   const i = arr.indexOf(m); i >= 0 ? arr.splice(i, 1) : arr.push(m);
