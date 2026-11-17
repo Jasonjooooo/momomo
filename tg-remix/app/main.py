@@ -146,6 +146,18 @@ def selftest() -> int:
     font = find_font("")
     print("中文字体:", font)
 
+    # 界面里每个 api.xxx(...) 调用，后台都要有对应的方法（1.8.0 删机器人时误删了更新功能，界面点了没反应）
+    import re
+
+    from api import Api
+
+    calls = set(re.findall(r"\bapi\.([a-z_]+)\(", (BASE / "ui" / "index.html").read_text(encoding="utf-8")))
+    missing = sorted(c for c in calls if not callable(getattr(Api, c, None)))
+    if missing:
+        print("❌ 界面调用了后台没有的功能：", ", ".join(missing))
+        return 1
+    print(f"界面调用的 {len(calls)} 个后台功能: ✅")
+
     import edge_tts  # noqa: F401  （AI 配音依赖要打包进来）
     import aiohttp_socks  # noqa: F401  （小更新下载走代理要用）
     print("网络组件: ✅")

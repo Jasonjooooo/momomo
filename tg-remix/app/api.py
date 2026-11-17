@@ -555,6 +555,78 @@ class Api:
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "error": _friendly(e)}
 
+    # ------------------------------------------------------------ 更新
+    def check_update(self) -> dict:
+        """从 GitHub 下载小更新包（几百 KB），比较版本"""
+        from tgremix import updater
+        from tgremix.runtime import effective_proxy
+
+        cfg = self._cfg()
+        incoming = updater.update_dir(self._root) / "incoming.zip"
+        try:
+            updater.download(incoming, effective_proxy(cfg["telegram"]))
+            info = updater.read_package(incoming)
+        except updater.UpdateError as e:
+            return {"ok": False, "error": str(e)}
+        latest = info.get("version", "0")
+        res = {"ok": True, "current": APP_VERSION, "version": latest, "notes": info.get("notes", "")}
+        if updater.vtuple(latest) <= updater.vtuple(APP_VERSION):
+            incoming.unlink(missing_ok=True)
+            return {**res, "available": False}
+        if int(info.get("min_base", 0)) > int(self._base_build or 0):
+            return {**res, "available": False, "need_full": True, "url": updater.FULL_URL}
+        return {**res, "available": True}
+
+    def install_update(self) -> dict:
+        from tgremix import updater
+
+        incoming = updater.update_dir(self._root) / "incoming.zip"
+        if not incoming.exists():
+            return {"ok": False, "error": "请先检查更新"}
+        try:
+            info = updater.install(incoming, self._root, int(self._base_build or 0))
+        except updater.UpdateError as e:
+            return {"ok": False, "error": str(e)}
+        incoming.unlink(missing_ok=True)
+        log(f"⬆️ 已安装更新 {info.get('version')}，重启 TG二创 后生效")
+        return {"ok": True, "version": info.get("version")}
+
+    def install_update_file(self) -> dict:
+        """从文件安装小更新包（比如我直接发给你的 TGRemix-update.zip）"""
+        from tgremix import updater
+
+        p = self.pick("update")
+        if not p:
+            return {"ok": False, "cancel": True}
+        try:
+            info = updater.install(Path(p), self._root, int(self._base_build or 0))
+        except updater.UpdateError as e:
+            return {"ok": False, "error": str(e)}
+        log(f"⬆️ 已安装更新 {info.get('version')}，重启 TG二创 后生效")
+        return {"ok": True, "version": info.get("version")}
+
+    def restart_app(self) -> dict:
+        """重新打开 TG二创（让更新生效）"""
+        import os
+
+        if getattr(sys, "frozen", False) and sys.platform == "darwin":
+            bundle = Path(sys.executable).resolve().parents[2]
+            subprocess.Popen(["/bin/sh", "-c", f'sleep 1; open -n "{bundle}"'])
+            threading.Timer(0.3, lambda: os._exit(0)).start()
+            return {"ok": True}
+        return {"ok": False, "error": "请手动关闭再打开 TG二创"}
+
+    # ------------------------------------------------------------ 代理
+    def detect_proxy(self) -> dict:
+        from tgremix.runtime import effective_proxy, probe_local_proxy, proxy_url, system_proxy
+
+        cfg = self._cfg()
+        px = effective_proxy(cfg["telegram"])
+        return {
+            "using": proxy_url(px) or "", "from": (px or {}).get("from", ""),
+            "system": proxy_url(system_proxy()) or "", "probe": proxy_url(probe_local_proxy()) or "",
+        }
+
     def stop(self) -> dict:
         stop_event.set()
         self._set_status("正在停止…")
