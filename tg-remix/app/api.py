@@ -219,6 +219,7 @@ class Api:
 
         cfg = self._cfg()
         session_file = self._root / f"{cfg['telegram']['session']}.session"
+        self._serve_link()
         return {
             "version": APP_VERSION,
             "update_active": bool(self._update_state.get("active")),
@@ -230,6 +231,16 @@ class Api:
             "font": find_font(cfg["process"].get("font", "")) or "",
             "ffmpeg": runtime.ffmpeg_bin("ffmpeg"),
         }
+
+    def _serve_link(self) -> None:
+        """开给 Chrome 插件「X 时间工作流」用的本机小接口（到点叫 TG二创 开始下载并处理）"""
+        if getattr(self, "_link_tried", False):
+            return
+        self._link_tried = True
+        from tgremix import link
+
+        if not link.serve(self, APP_VERSION):
+            log(f"ℹ️ 本机端口 {link.PORT} 被别的程序占了，「X 时间工作流」插件暂时叫不动 TG二创（其他功能不受影响）")
 
     def save_config(self, data: dict) -> dict:
         try:

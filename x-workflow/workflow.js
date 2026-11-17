@@ -18,11 +18,13 @@ const S = {
 
 /* ---------- 读写存储 ---------- */
 async function load() {
-  const v = await chrome.storage.local.get(["snap", "xsnap", "wfSteps", "wfTimes", "wfNotify", "wfFollow", "wfFollowMigrated", "wfDone", "wfRuns"]);
+  const v = await chrome.storage.local.get(["snap", "xsnap", "tsnap", "wfSteps", "wfTimes", "wfNotify", "wfFollow", "wfFollowMigrated", "wfV14", "wfDone", "wfRuns", "wfAuto", "wfAutoOn", "wfAutoPause"]);
+  S.tg = v.tsnap || null; S.tgAt = (v.tsnap && !v.tsnap.down && v.tsnap.at) || 0;
+  S.autoLog = v.wfAuto || {}; S.autoOn = v.wfAutoOn !== false; S.autoPause = v.wfAutoPause || "";
   S.hg = v.snap || null; S.hgAt = (v.snap && v.snap.at) || 0;
   S.xrf = v.xsnap || null; S.xrfAt = (v.xsnap && v.xsnap.at) || 0;
   S.steps = loadSteps(v);
-  if (!v.wfFollowMigrated) await chrome.storage.local.set({ wfSteps: S.steps, wfFollowMigrated: true });   // 「关注新人」变成普通步骤，只做一次
+  if (!v.wfFollowMigrated || !v.wfV14) await chrome.storage.local.set({ wfSteps: S.steps, wfFollowMigrated: true, wfV14: true });   // 升级只做一次
   S.notify = v.wfNotify !== false;
   S.done = v.wfDone || {};
   S.runs = v.wfRuns || {};
@@ -30,6 +32,7 @@ async function load() {
 const saveSteps = () => chrome.storage.local.set({ wfSteps: S.steps });
 const hgOk = () => S.hgAt && Date.now() - S.hgAt < STALE_MS;
 const xrfOk = () => S.xrfAt && Date.now() - S.xrfAt < STALE_MS;
+const tgOk = () => S.tgAt && Date.now() - S.tgAt < STALE_MS;
 const H = (k, d) => (S.hg && S.hg[k] != null ? S.hg[k] : d);
 
 /* 操作交给另外两个插件去做 */
@@ -43,6 +46,7 @@ const ACT = {
   sched: () => send("hg", { type: "xfb-open-schedule" }),
   inbox: () => send("hg", { type: "xfb-open-inbox" }),
   pool: () => send("hg", { type: "wf-open-pool" }),
+  tg: (mode) => send("tg", { type: "tg-run", mode }),
 };
 let errT = 0;
 function showErr(t) { const e = $("#err"); e.textContent = t; e.hidden = false; clearTimeout(errT); errT = setTimeout(() => { e.hidden = true; }, 9000); }
@@ -80,6 +84,19 @@ function renderTop() {
   const x = S.xrf || {}, st = x.status || {};
   $("#meta-xrf").textContent = !S.xrfAt ? "还没连上：装好新版 X 自动回复流程（1.1.0），再刷新一次 X 页面。"
     : (!xrfOk() ? `断开了（上次 ${clock(S.xrfAt)}）· ` : "已连接 · ") + `今天回复 ${x.todayDone || 0} 条 · ` + (st.active ? (st.paused ? "已暂停" : `运行中 ${st.done || 0}/${st.max || 0}`) : "现在空闲");
+
+  const ts = $("#st-tg"), tg = S.tg || {};
+  ts.dataset.s = tgOk() ? "ok" : S.tg && S.tg.at ? "stale" : "none";
+  $("#meta-tg").textContent = tgOk() ? `已连接 · 版本 ${tg.version || "?"} · ` + (tg.running ? `正在运行：${tg.status || ""}${tg.progress ? " · " + tg.progress : ""}` : "现在空闲")
+    : S.tg && S.tg.at ? `没开着（上次 ${clock(S.tg.at)}）。到点要叫它开始的话，TG二创 得开着。` : "还没连上：打开 TG二创（1.9.0 以上）就会自动连上。";
+  const paused = S.autoPause === today();
+  $("#auto-on").checked = S.autoOn;
+  $("#master").classList.toggle("off", !S.autoOn || paused);
+  const autoSteps = S.steps.filter((s) => s.auto && s.action.type !== "none" && onDay(s, today()));
+  $("#auto-meta").textContent = !S.autoOn ? "关着：到点只弹提醒，不自己做" : paused ? "今天暂停了，明天自动恢复"
+    : `今天有 ${autoSteps.length} 个步骤到点自己做（卡片上标着 ⏰）。Chrome 要开着；电脑睡着错过的，10 分钟内醒来会补做`;
+  $("#auto-pause").textContent = paused ? "恢复今天的" : "今天先暂停";
+  $("#auto-pause").hidden = !S.autoOn;
 
   $("#sum").hidden = !S.hgAt;
   $("#s-posts").textContent = ps.length;
@@ -175,6 +192,7 @@ function stepNode(s) {
   if (s.custom) h.append(el("span", "mine", "我加的"));
   const run = s.action.type === "xrf" ? runOf(s) : null;
   if (run) h.append(el("span", "chip " + run.cls, run.label));
+  if (s.auto && s.action.type !== "none") h.append(el("span", "autochip", "⏰ 到点自动"));
   h.append(el("span", "nowtag", "现在"));
   if (S.editing) {
     const ops = el("span", "ops");
@@ -184,16 +202,49 @@ function stepNode(s) {
   c.append(h);
   if (s.items.length) { const ul = el("ul"); s.items.forEach((x) => ul.append(el("li", null, x))); c.append(ul); }
   if (s.action.type === "xrf" && !S.editing) xrfBody(c, s, run);
+  else if (s.action.type === "tg" && !S.editing) tgBody(c, s);
   else {
     const f = el("div", "foot");
     if (s.tool) f.append(el("span", "tool", s.tool));
     if (!S.editing) actionButton(f, s);
     if (f.childNodes.length) c.append(f);
   }
+  if (!S.editing) { const al = autoLine(s); if (al) c.append(al); }
   li.append(t, ax, c);
   if (!S.editing && s.mode === "once") bindDrag(li, s, t, ax, dot);
   return li;
 }
+/* 到点自动：还没到 → 会做什么；做过了 → 做成了没有 */
+function autoLine(s) {
+  if (!s.auto || s.action.type === "none" || s.mode === "repeat") return null;
+  const rec = ((S.autoLog[S.day] || {})[`${s.id}|${s.t}`]);
+  if (rec) return el("div", "autolog " + (rec.ok ? "ok" : "bad"), rec.ok ? `✓ ${clockHM(rec.at)} 已自动${rec.msg}` : `⚠ ${clockHM(rec.at)} 没能自动开始：${rec.msg}`);
+  if (S.day !== today() || nowMin() < s.t) {
+    const off = !S.autoOn ? "（「到点自动做」关着，到点只提醒）" : S.autoPause === S.day ? "（今天暂停了）" : "";
+    return el("div", "autolog", `⏰ ${fmt(s.t)} 会自动${AUTO_TEXT[s.action.type] || "开始"}${off}`);
+  }
+  return null;
+}
+const clockHM = (t) => { const d = new Date(t); return fmt(d.getHours() * 60 + d.getMinutes()); };
+
+/* TG二创 步骤：开始按钮 + 正在做什么 + 最近几行日志 */
+function tgBody(c, s) {
+  const tg = S.tg || {}, f = el("div", "foot"), mode = s.action.mode || "all";
+  if (s.tool) f.append(el("span", "tool", s.tool));
+  if (tgOk() && tg.running) {
+    c.append(el("div", "runline", `TG二创 正在运行：${tg.status || ""}${tg.progress ? " · " + tg.progress : ""}`));
+    f.append(btn("⏹ 停止", null, () => send("tg", { type: "tg-stop" })));
+  } else if (S.day === today()) {
+    f.append(btn(`▶ 让 TG二创 ${TG_MODES[mode]}`, "primary", () => ACT.tg(mode)));
+  }
+  c.append(f);
+  if (tgOk() && tg.lines && tg.lines.length && S.day === today()) {
+    const ol = el("ol", "tglines");
+    tg.lines.slice(-4).forEach((x) => ol.append(el("li", null, x)));
+    c.append(ol);
+  }
+}
+
 function actionButton(f, s) {
   const a = s.action;
   if (a.type === "sched") f.append(btn("打开发帖排期表 ↗", null, ACT.sched));
@@ -257,7 +308,7 @@ function xrfBody(c, s, run) {
   }
   if (S.xrf && S.day === today()) { const lv = el("span", "live", "今天自动回复 "); lv.append(el("b", null, String(S.xrf.todayDone || 0)), " 条"); f.append(lv); }
   c.append(f);
-  if (s.action.auto) c.append(el("div", "autoline", `⏰ ${fmt(s.t)} 自动开始（Chrome 要开着）`));
+
 }
 const minOf = (t) => { const d = new Date(t); return d.getHours() * 60 + d.getMinutes(); };
 async function startXrf(s) {
@@ -309,7 +360,7 @@ function hourNode(row) {
   row.reps.filter((x) => x.s.follow).forEach(({ s, ms }) => {
     /* 关注新人：每一格这段时间关注了几个人（回关助手记的关注时间），自动统计，不用打勾 */
     const g = el("div", "grp k-follow");
-    g.append(el("span", "gname", s.title), el("span", "gsub", `每 ${everyText(s.every)}一轮，一轮 ${H("roundTarget", 15)} 个`));
+    g.append(el("span", "gname", s.title), el("span", "gsub", `每 ${everyText(s.every)}一轮，一轮 ${H("roundTarget", 15)} 个` + (s.auto ? " · ⏰ 到点自动打开互关池" : "")));
     const times = H("followTimes", []) || [];
     ms.forEach((m) => {
       const a = dayStart + m * 60000, b = a + s.every * 60000;
@@ -323,7 +374,7 @@ function hourNode(row) {
   });
   row.reps.filter((x) => !x.s.follow).forEach(({ s, ms }) => {
     const g = el("div", `grp k-${s.kind}`);
-    g.append(el("span", "gname", s.title), el("span", "gsub", `每 ${everyText(s.every)}` + (s.dur ? `，约 ${s.dur}` : "")));
+    g.append(el("span", "gname", s.title), el("span", "gsub", `每 ${everyText(s.every)}` + (s.dur ? `，约 ${s.dur}` : "") + (s.auto && s.action.type !== "none" ? ` · ⏰ 到点自动${AUTO_TEXT[s.action.type] || ""}` : "")));
     const done = ((S.done[S.day] || {})[s.id]) || [];
     ms.forEach((m) => {
       const isDone = done.includes(m);
@@ -392,6 +443,8 @@ function setupDlg() {
     const b = btn("日一二三四五六"[d], null, () => { D.days = D.days.includes(d) ? D.days.filter((x) => x !== d) : [...D.days, d]; paintDlg(); });
     b.dataset.d = d; b.setAttribute("aria-label", "周" + "日一二三四五六"[d]); days.append(b);
   });
+  Object.entries(TG_MODES).forEach(([k, name]) => $("#d-tgmode").append(new Option(name, k)));
+  $("#d-auto").addEventListener("change", paintDlg);
   const act = $("#d-action");
   Object.entries(ACTIONS_LIST).forEach(([k, name]) => act.append(new Option(name, k)));
   act.addEventListener("change", paintDlg);
@@ -421,7 +474,8 @@ function openDlg(s, t) {
   $("#d-url").value = n.action.url || "";
   $("#d-count-n").value = String(n.action.count || 30);
   $("#d-tab").value = n.action.tab || XRF_TABS[0];
-  $("#d-auto").checked = !!n.action.auto;
+  $("#d-auto").checked = !!n.auto;
+  $("#d-tgmode").value = n.action.mode || "all";
   $("#d-idle").checked = n.idle; $("#d-notify").checked = n.notify;
   $("#d-del").hidden = !s; $("#d-err").hidden = true;
   $("#shade").hidden = false; $("#dlg").hidden = false;
@@ -438,7 +492,10 @@ function paintDlg() {
   document.querySelectorAll("#d-kinds button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.k === D.kind)));
   document.querySelectorAll("#d-days button").forEach((b) => b.setAttribute("aria-pressed", String(D.days.includes(Number(b.dataset.d)))));
   const a = $("#d-action").value;
-  $("#d-urlbox").hidden = a !== "url"; $("#d-xrfbox").hidden = a !== "xrf";
+  $("#d-urlbox").hidden = a !== "url"; $("#d-xrfbox").hidden = a !== "xrf"; $("#d-tgbox").hidden = a !== "tg";
+  const at = D.follow ? "pool" : a;
+  $("#d-autobox").hidden = at === "none";
+  $("#d-auto-t").textContent = `⏰ 到点自动${AUTO_TEXT[at] || "开始"}` + (D.mode === "repeat" ? "（每一次都做）" : "") + "，Chrome 要开着";
   $("#d-idlebox").hidden = D.mode === "repeat";
   const name = $("#d-title").value.trim() || "这一步";
   $("#d-notify-t").textContent = D.mode === "repeat" ? `每次到点都弹提醒「该做了：${name}」` : `到点弹提醒「该做了：${name}」`;
@@ -474,7 +531,8 @@ async function saveDlg() {
     dur: D.mode === "repeat" ? $("#d-dur2").value : $("#d-dur").value,
     every: readEvery(), from: toMin($("#d-from").value), to: toMin($("#d-to").value),
     items: $("#d-items").value.split("\n"), tool: $("#d-tool").value,
-    action: { type: a, url: $("#d-url").value, count: Number($("#d-count-n").value), tab: $("#d-tab").value, auto: $("#d-auto").checked },
+    action: { type: a, url: $("#d-url").value, count: Number($("#d-count-n").value), tab: $("#d-tab").value, mode: $("#d-tgmode").value },
+    auto: $("#d-auto").checked,
     idle: D.mode === "once" && $("#d-idle").checked, notify: $("#d-notify").checked, custom: D.step ? old.custom : true,
   });
   if (D.step) S.steps = S.steps.map((x) => (x.id === n.id ? n : x)); else S.steps.push(n);
@@ -532,6 +590,8 @@ async function start() {
   });
   $("#toast-undo").addEventListener("click", async () => { const f = undoFn; $("#toast").hidden = true; undoFn = null; if (f) await f(); });
   $("#notify").addEventListener("change", (e) => chrome.storage.local.set({ wfNotify: e.target.checked }));
+  $("#auto-on").addEventListener("change", (e) => chrome.storage.local.set({ wfAutoOn: e.target.checked }));
+  $("#auto-pause").addEventListener("click", () => chrome.storage.local.set({ wfAutoPause: S.autoPause === today() ? "" : today() }));
   setupDlg();
   await load();
   $("#notify").checked = S.notify;
@@ -539,7 +599,7 @@ async function start() {
   chrome.runtime.sendMessage({ type: "pull" }).catch(() => {});      // 打开页面时让另外两个插件马上发一次最新数据
   let lastSched = JSON.stringify(H("schedule", {}));
   chrome.storage.onChanged.addListener(async (ch, area) => {
-    if (area !== "local" || !["snap", "xsnap", "wfSteps", "wfDone", "wfRuns", "wfNotify"].some((k) => ch[k])) return;
+    if (area !== "local" || !["snap", "xsnap", "tsnap", "wfSteps", "wfDone", "wfRuns", "wfNotify", "wfAuto", "wfAutoOn", "wfAutoPause"].some((k) => ch[k])) return;
     if (S.dragging) return;          // 正在拖动时不打断，松手后会重新画
     await load();
     if (!$("#dlg").hidden) { renderTop(); renderPool(); return; }   // 编辑面板开着时不重画时间线

@@ -20,9 +20,23 @@ const ACTIONS_LIST = {
   inbox: "打开待回复评论",
   pool: "打开互关池",
   xrf: "启动 X 自动回复流程",
+  tg: "启动 TG二创",
   url: "打开一个网址",
 };
 const XRF_TABS = ["为你推荐", "正在关注", "新闻"];
+const TG_MODES = { all: "下载并处理", download: "只下载", process: "只处理" };
+const TG_PORT = 38719;      // TG二创 在本机开的接口（只认时间工作流插件）
+const AUTO_WINDOW = 10;     // 到点那一分钟 Chrome 没开 / 电脑在睡：10 分钟内醒来还会补做，再晚就不补了
+
+/* 每种按钮「到点自动」做什么 */
+const AUTO_TEXT = {
+  xrf: "开始这一轮自动回复",
+  tg: "叫 TG二创 开始",
+  inbox: "打开待回复评论并抓取最新评论",
+  pool: "打开互关池（关注还是你按 F）",
+  sched: "打开发帖排期表",
+  url: "打开这个网址",
+};
 const EVERY_CHOICES = [10, 15, 20, 30, 45, 60, 90, 120, 180];
 
 /* 一个步骤长这样（存在 chrome.storage.local.wfSteps 里）：
@@ -35,7 +49,7 @@ const EVERY_CHOICES = [10, 15, 20, 30, 45, 60, 90, 120, 180];
 const DEFAULT_STEPS = [
   { id: "data", t: "08:30", kind: "review", title: "看昨天的数据", dur: "15 分钟", items: ["看昨天帖子的浏览、点赞、转发、涨粉", "记下哪类内容最好，今天多排这类"], tool: "X 数据分析" },
   { id: "pick", t: "09:00", kind: "prep", title: "挑素材", dur: "30 分钟", items: ["TG二创「浏览」按标签逛群，点开视频看前 8 秒", "挑出今天要用的，点下载"], tool: "TG二创 · 浏览" },
-  { id: "remix", t: "09:30", kind: "prep", idle: true, title: "批量二创", dur: "20–40 分钟", items: ["「运行」页一键处理，这段时间可以做别的"], tool: "TG二创 · 运行" },
+  { id: "remix", t: "09:30", kind: "prep", idle: true, title: "批量二创", dur: "20–40 分钟", items: ["TG二创 下载新素材并批量处理，这段时间可以做别的"], tool: "TG二创", action: { type: "tg", mode: "all" } },
   { id: "write", t: "10:15", kind: "prep", title: "写文案，填进发帖排期表", dur: "30 分钟", items: ["每条成品看一遍，写一句开头钩子", "在排期表里填好文字和视频，点「把这天还没发的都交给 X 定时」"], action: { type: "sched" } },
   { id: "reply1", t: "12:30", kind: "talk", idle: true, title: "自动回复 第 1 轮", dur: "约 40 分钟", items: [], action: { type: "xrf", count: 30, tab: "为你推荐" } },
   { id: "reply2", t: "19:00", kind: "talk", idle: true, title: "自动回复 第 2 轮", dur: "约 40 分钟", items: [], action: { type: "xrf", count: 30, tab: "正在关注" } },
@@ -63,6 +77,8 @@ function normStep(s) {
     idle: !!s.idle,
     notify: s.notify !== false,
     custom: !!s.custom,
+    /* 到点自动开始：没设过的（旧版存的步骤），有按钮就默认开 */
+    auto: s.auto != null ? !!s.auto : !!(s.action && s.action.type && s.action.type !== "none"),
     follow: !!s.follow,      // 关注新人：每一格的关注数由回关助手自动统计
   };
   if (n.follow) { n.mode = "repeat"; n.kind = "follow"; n.action = { type: "pool" }; }
@@ -74,6 +90,9 @@ function normStep(s) {
     n.action.auto = !!n.action.auto;
   }
   if (n.action.type === "url") n.action.url = String(n.action.url || "").trim();
+  if (n.action.type === "tg" && !TG_MODES[n.action.mode]) n.action.mode = "all";
+  delete n.action.auto;                   // 旧版只有自动回复有「到点自动开始」，现在是每一步都有的 auto
+  if (n.action.type === "none") n.auto = false;
   if (n.to < n.from) n.to = n.from;
   return n;
 }
@@ -112,6 +131,8 @@ function loadSteps(v) {
     const times = v.wfTimes || {};
     steps = DEFAULT_STEPS.filter((s) => !s.follow).map((s) => normStep({ ...s, t: Number.isFinite(times[s.id]) ? times[s.id] : s.t }));
   }
+  /* 1.4：默认的「批量二创」接上 TG二创（只改没动过按钮的） */
+  if (!v.wfV14) steps = steps.map((s) => (s.id === "remix" && !s.custom && s.action.type === "none" ? normStep({ ...s, action: { type: "tg", mode: "all" }, auto: true }) : s));
   if (!v.wfFollowMigrated && !steps.some((s) => s.follow)) {
     const old = { ...FOLLOW_DEF, ...(v.wfFollow || {}) };
     if (old.on !== false) {
