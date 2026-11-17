@@ -450,7 +450,8 @@
   }
 
   // ---------- 主循环 ----------
-  /** opts（时间工作流启动时传）：maxPosts 这一轮回复几条，tab 从哪个首页标签开始。弹窗里点「开始」不传，用设置里的 */
+  /** opts（时间工作流启动时传）：maxPosts 这一轮回复几条，tab 从哪个首页标签开始，fromHome 一定先回首页（不回复当前这条帖子）。
+   *  弹窗里点「开始」不传，用设置里的 */
   async function start(opts = {}) {
     if (run.active) return;
     if (!alive()) return markDead();
@@ -468,7 +469,7 @@
       // 起点：在帖子页且没处理过 → 先处理当前帖子；否则回到首页
       run.tabIdx = Math.max(0, feedTabs().indexOf(opts.tab));
       const sid = statusIdFromPath();
-      if (!(sid && !processed.has(sid) && !isMine(location.pathname))) await goHome();
+      if (opts.fromHome || !(sid && !processed.has(sid) && !isMine(location.pathname))) await goHome();
 
       while (run.done < cfg.maxPosts) {
         await checkpoint();

@@ -59,21 +59,35 @@ async function runningTab() {
   for (const tab of await chrome.tabs.query({ url: X_URLS })) { const r = await ping(tab.id); if (r && r.running) return tab.id; }
   return null;
 }
-/* 开始一轮：用已经开着的 X 页面；没有就新开 X 首页。页面是插件更新前打开的（连不上），先刷新一下 */
+/* 自动回复专用的 X 页面：第一次新开一个，以后一直用它，不碰你自己正在看的 X 页面 */
+async function ownTab() {
+  const { xrfOwnTab } = await chrome.storage.local.get(["xrfOwnTab"]);
+  if (xrfOwnTab) {
+    try {
+      const t = await chrome.tabs.get(xrfOwnTab);
+      if (/^https:\/\/(x|twitter)\.com\//.test(t.url || t.pendingUrl || "")) {
+        await chrome.tabs.update(t.id, { active: true });           // 切到前面：在后台的页面 Chrome 会把它放慢
+        if (!(await ping(t.id))) await chrome.tabs.reload(t.id);    // 插件更新过 / 页面卡住：刷新一下
+        return t;
+      }
+    } catch (e) { /* 已经被关掉了 */ }
+  }
+  const w = await chrome.windows.getLastFocused({ windowTypes: ["normal"] }).catch(() => null);
+  const t = await chrome.tabs.create({ url: "https://x.com/home", active: true, ...(w ? { windowId: w.id } : {}) });
+  await chrome.storage.local.set({ xrfOwnTab: t.id });
+  return t;
+}
+
+/* 开始一轮：在专用的 X 页面上，从首页的标签（默认「为你推荐」）开始回复 */
 async function startRun(m) {
   if (await runningTab()) return { ok: false, reason: "自动回复已经在跑了，等这一轮跑完，或者先点「停止」。" };
-  const tabs = await chrome.tabs.query({ url: X_URLS });
-  tabs.sort((a, b) => (b.active ? 1 : 0) - (a.active ? 1 : 0));
-  let tab = null;
-  for (const t of tabs) { if (await ping(t.id)) { tab = t; break; } }
-  if (!tab && tabs.length) { tab = tabs[0]; await chrome.tabs.reload(tab.id); }
-  if (!tab) tab = await chrome.tabs.create({ url: "https://x.com/home", active: !m.auto });
+  const tab = await ownTab();
   let ok = false;
   for (let i = 0; i < 60 && !ok; i++) { ok = !!(await ping(tab.id)); if (!ok) await sleep(500); }
   if (!ok) return { ok: false, reason: "X 页面 30 秒还没加载好，刷新一下 X 页面再试。" };
   await chrome.storage.local.set({ xrfRunTag: { stepId: m.stepId || "", date: m.date || dateKey(new Date()), at: Date.now(), tabId: tab.id } });
   try {
-    await chrome.tabs.sendMessage(tab.id, { type: "start", opts: { maxPosts: m.count, tab: m.tab } });
+    await chrome.tabs.sendMessage(tab.id, { type: "start", opts: { maxPosts: m.count, tab: m.tab, fromHome: true } });
   } catch (e) {
     return { ok: false, reason: "X 页面没响应，刷新一下 X 页面再试。" };
   }
