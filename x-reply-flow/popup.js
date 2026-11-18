@@ -1,5 +1,5 @@
 const $ = (s) => document.querySelector(s);
-const FIELDS = ["maxPosts", "minGap", "maxGap", "confirmBeforeSend", "txtOpen", "txtRegen", "txtFill", "loadingWords", "failWords", "maxRetries", "feedTabs", "maxGarbageRetries", "badWords", "maxReplyLen", "pick"];
+const FIELDS = ["maxPosts", "minGap", "maxGap", "confirmBeforeSend", "txtOpen", "txtRegen", "txtFill", "loadingWords", "failWords", "maxRetries", "feedTabs", "maxGarbageRetries", "badWords", "maxReplyLen", "pick", "minHeat"];
 let tabId = null;
 
 async function send(type) {
@@ -23,6 +23,7 @@ function readCfg() {
   c.maxGarbageRetries = Number.isNaN(Math.round(c.maxGarbageRetries)) ? XRF_DEFAULTS.maxGarbageRetries : Math.max(0, Math.min(50, Math.round(c.maxGarbageRetries)));
   c.maxReplyLen = Math.max(10, Math.min(280, Math.round(c.maxReplyLen) || XRF_DEFAULTS.maxReplyLen));
   c.maxPosts = Math.max(1, Math.round(c.maxPosts) || XRF_DEFAULTS.maxPosts);
+  c.minHeat = Number.isNaN(c.minHeat) ? XRF_DEFAULTS.minHeat : Math.max(0, Math.round(c.minHeat));
   c.minGap = Math.max(1, c.minGap || XRF_DEFAULTS.minGap);
   c.maxGap = Math.max(c.minGap, c.maxGap || XRF_DEFAULTS.maxGap);
   for (const k of ["txtOpen", "txtRegen", "txtFill", "loadingWords", "failWords", "feedTabs", "badWords"]) if (!c[k]) c[k] = XRF_DEFAULTS[k];
@@ -104,6 +105,7 @@ async function init() {
       `当前页面：${r.page}`,
       `当前账号：${r.me ? "@" + r.me + "（自己的帖子和回复会跳过）" : "❌ 没识别到（可能会回复到自己的帖子）"}`,
       r.page === "首页" ? `首页标签：${r.tabs}` : "",
+      r.heat ? `热度：${r.heat}` : "",
       `生成按钮：${r.regen ? "✅ 找到「" + r.regen + "」" : "❌ 没找到（面板没打开时属正常，开始后会先点「" + $("#txtOpen").value + "」打开）"}`,
       `「${$("#txtFill").value}」：${r.fill ? `✅ 找到 ${r.fill} 个` : "— 还没出现（生成后才出现，属正常）"}`,
       `打开面板「${$("#txtOpen").value}」：${yn(r.opener)}`,

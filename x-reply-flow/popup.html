@@ -32,6 +32,7 @@
     <label class="field">首页标签顺序 <input id="feedTabs" type="text" title="用逗号分隔；当前标签没有新帖子时换下一个" /></label>
     <label>生成失败时，4 秒后自动重试 <input id="maxRetries" type="number" min="0" max="10" /> 次</label>
     <label>回复是乱码时，最多换 <input id="maxGarbageRetries" type="number" min="0" max="50" /> 批</label>
+    <label title="每小时浏览量 = 浏览总数 ÷ 发了几个小时（和回关助手帖子右上角的「1167/时」一样）。看不到浏览量的帖子也会跳过">只回复热度 ≥ <input id="minHeat" type="number" min="0" step="100" /> 浏览/时（0 = 不筛选）</label>
     <label class="check"><input id="confirmBeforeSend" type="checkbox" /> 发送前等我确认（默认直接发送）</label>
 
     <details>

@@ -2,6 +2,7 @@
 const XRF_DEFAULTS = {
   feedTabs: "为你推荐,正在关注,新闻", // 首页标签顺序：当前标签没有新帖子就换下一个
   maxPosts: 30,          // 本次最多回复多少条
+  minHeat: 800,          // 只回复热度 ≥ 这个数的帖子（每小时浏览量，和回关助手的「1167/时」一样算）；0 = 不筛选
   minGap: 5,             // 两条之间最少等待（秒）
   maxGap: 8,             // 两条之间最多等待（秒）
   confirmBeforeSend: false, // 发送前停下来等你确认

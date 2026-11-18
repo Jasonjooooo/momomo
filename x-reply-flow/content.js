@@ -183,6 +183,34 @@
   }
   const replyBoxText = () => norm(document.querySelector(SEL.replyBox)?.textContent);
 
+  // ---------- 热度：每小时浏览量（和回关助手的「1167/时」一样算） ----------
+  /** "9"、"1,234"、"1.2K"、"1.2万" → 数字 */
+  function parseCount(str) {
+    const m = String(str || "").replace(/[,，\s]/g, "").match(/(\d+(?:\.\d+)?)(万|亿|[KkMm])?/);
+    if (!m) return 0;
+    let n = parseFloat(m[1]);
+    if (m[2] === "万") n *= 1e4;
+    else if (m[2] === "亿") n *= 1e8;
+    else if (m[2] && /k/i.test(m[2])) n *= 1e3;
+    else if (m[2] && /m/i.test(m[2])) n *= 1e6;
+    return Math.round(n);
+  }
+  /** 帖子的每小时浏览量 = 浏览总数 ÷ 发了几个小时（不足 15 分钟按 15 分钟算）。读不到浏览量或发布时间返回 null */
+  function heatOf(art) {
+    const labels = [];
+    const grp = art.querySelector('[role="group"][aria-label]');
+    if (grp) labels.push(...grp.getAttribute("aria-label").split(/[,，、;；]\s*/));
+    const an = art.querySelector('a[href$="/analytics"]');
+    if (an && an.getAttribute("aria-label")) labels.push(...an.getAttribute("aria-label").split(/[,，、;；。]\s*/));
+    const vl = labels.find((l) => /查看|浏览|view/i.test(l) && /\d/.test(l));
+    const views = vl ? parseCount(vl) : 0;
+    const tm = art.querySelector("a[href*='/status/'] time[datetime]");
+    const t = tm ? Date.parse(tm.getAttribute("datetime")) : 0;
+    if (!views || !t) return null;
+    return Math.round(views / Math.max((Date.now() - t) / 36e5, 0.25));
+  }
+  const heatText = (n) => (n >= 1e4 ? (n / 1e4).toFixed(1).replace(/\.0$/, "") + "万" : String(n)) + "/时";
+
   // ---------- 首页标签：为你推荐 → 正在关注 → 新闻 … 轮流 ----------
   const TAB_ALIASES = { 为你推荐: ["ForYou"], 正在关注: ["关注", "Following"] };
   const feedTabs = () => {
@@ -232,16 +260,25 @@
     return false;
   }
 
-  /** 在当前标签里找下一条可回复的帖子（跳过自己的、处理过的、广告），找不到就往下滑 */
+  /** 在当前标签里找下一条可回复的帖子（跳过自己的、处理过的、广告、热度不够的），找不到就往下滑 */
+  const lowHeat = new Set();   // 这次运行里因为热度不够跳过的帖子（不算「处理过」，下次热度上来了还会回）
   async function scanCurrentTab(processed) {
-    for (let tries = 0; tries < 12; tries++) {
+    const minHeat = Math.max(0, Number(cfg.minHeat) || 0);
+    let skipped = 0;
+    for (let tries = 0; tries < (minHeat ? 30 : 12); tries++) {   // 要筛热度的话，往下多滑几屏
       await checkpoint();
       for (const art of document.querySelectorAll(SEL.article)) {
         if (art.getBoundingClientRect().bottom <= 80) continue; // 已经滑过去的不要
         const info = articleInfo(art);
-        if (info && !info.mine && !processed.has(info.id)) return { art, ...info };
+        if (!info || info.mine || processed.has(info.id) || lowHeat.has(info.id)) continue;
+        if (minHeat) {
+          const h = heatOf(art);
+          if (h === null || h < minHeat) { lowHeat.add(info.id); skipped++; continue; }
+          return { art, ...info, heat: h };
+        }
+        return { art, ...info };
       }
-      setStep(`「${currentTabName()}」向下滑动寻找下一条帖子…`);
+      setStep(minHeat ? `「${currentTabName()}」找热度 ≥ ${heatText(minHeat)} 的帖子…（已跳过 ${skipped} 条不够热的）` : `「${currentTabName()}」向下滑动寻找下一条帖子…`);
       window.scrollBy({ top: window.innerHeight * 0.8, behavior: "smooth" });
       await wait(rand(1200, 2000));
     }
@@ -256,7 +293,7 @@
       if (found) return found;
       if (n === tabs.length) break;
       run.tabIdx = (run.tabIdx + 1) % tabs.length;
-      await log(`「${tabs[(run.tabIdx + tabs.length - 1) % tabs.length]}」没有可回复的新帖子，切换到「${currentTabName()}」`);
+      await log(`「${tabs[(run.tabIdx + tabs.length - 1) % tabs.length]}」没有可回复的新帖子${Number(cfg.minHeat) ? `（热度 ≥ ${heatText(Number(cfg.minHeat))}）` : ""}，切换到「${currentTabName()}」`);
       await goHome();
       window.scrollTo({ top: 0 });
       await wait(1000);
@@ -458,12 +495,13 @@
     const { xrfCfg = {}, xrfProcessed = [] } = await store((st) => st.get(["xrfCfg", "xrfProcessed"]));
     cfg = { ...XRF_DEFAULTS, ...xrfCfg };
     if (Number(opts.maxPosts) > 0) cfg.maxPosts = Math.round(Number(opts.maxPosts));
+    if (opts.minHeat != null && Number(opts.minHeat) >= 0) cfg.minHeat = Math.round(Number(opts.minHeat));
     const processed = new Set(xrfProcessed);
     const saveProcessed = () => store((st) => st.set({ xrfProcessed: [...processed].slice(-5000) })).catch(() => {});
     Object.assign(run, { active: true, paused: false, stopReq: false, done: 0, failed: 0, step: "开始" });
     overlay.show();
     publish();   // 马上告诉弹窗和时间工作流：已经开始了
-    await log(`开始：最多 ${cfg.maxPosts} 条，间隔 ${cfg.minGap}–${cfg.maxGap} 秒`);
+    await log(`开始：最多 ${cfg.maxPosts} 条，间隔 ${cfg.minGap}–${cfg.maxGap} 秒` + (Number(cfg.minHeat) ? `，只回热度 ≥ ${heatText(Number(cfg.minHeat))} 的帖子` : ""));
 
     try {
       // 起点：在帖子页且没处理过 → 先处理当前帖子；否则回到首页
@@ -477,7 +515,7 @@
         if (!id) {
           const next = await findNextArticle(processed);
           id = next.id;
-          setStep(`打开帖子 ${id}`);
+          setStep(`打开帖子 ${id}` + (next.heat ? `（热度 ${heatText(next.heat)}）` : ""));
           next.art.scrollIntoView({ block: "center", behavior: "smooth" });
           await wait(rand(600, 1200));
           click(next.link);
@@ -543,6 +581,11 @@
       fill: findAll(cfg.txtFill).length,
       replyBox: !!document.querySelector(SEL.replyBox),
       replyBtn: !!document.querySelector(SEL.replyBtn),
+      heat: (() => {
+        const hs = [...document.querySelectorAll(SEL.article)].map(heatOf);
+        const min = Number(cfg.minHeat) || 0;
+        return `页面上 ${hs.length} 条帖子，读到浏览量 ${hs.filter((h) => h !== null).length} 条` + (min ? `，热度 ≥ ${heatText(min)} 的 ${hs.filter((h) => h !== null && h >= min).length} 条` : "");
+      })(),
       extFrames: frames.filter((f) => (f.src || "").startsWith("chrome-extension://")).length,
     };
   }
