@@ -77,6 +77,39 @@ button.btn:disabled { opacity: .45; cursor: default; }
 .msg { margin-top: 8px; font-size: 13px; min-height: 18px; }
 .msg.err { color: var(--err); } .msg.ok { color: var(--ok); }
 .hidden { display: none !important; }
+/* 发帖 */
+section.page#page-post { max-width: 1000px; }
+.pbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; }
+.pbar .sp { flex: 1; }
+.pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.pv { border: 1px solid var(--border); border-radius: 12px; background: var(--panel); overflow: hidden; display: flex; flex-direction: column; }
+.pv.sel { outline: 2px solid var(--accent); outline-offset: -1px; }
+.pv.out, .pv.posted { opacity: .62; }
+.pv .th { position: relative; aspect-ratio: 16 / 10; background: #111 center / contain no-repeat; cursor: pointer; }
+.pv .ck { position: absolute; left: 8px; top: 8px; width: 22px; height: 22px; border-radius: 6px; background: #fff; border: 2px solid #fff;
+  display: grid; place-items: center; color: #fff; font-size: 14px; font-weight: 900; box-shadow: 0 1px 4px #0005; }
+.pv.sel .ck { background: var(--accent); border-color: var(--accent); }
+.pv .sc { position: absolute; right: 8px; top: 8px; font-size: 13px; font-weight: 800; color: #fff; background: #12a150; border-radius: 6px; padding: 1px 8px; }
+.pv .sc.mid { background: #c27c00; } .pv .sc.low { background: #6b7280; }
+.pv .du { position: absolute; right: 8px; bottom: 6px; font-size: 12px; color: #fff; background: #0009; border-radius: 4px; padding: 0 6px; }
+.pv .vb { padding: 8px 10px 10px; display: flex; flex-direction: column; gap: 6px; }
+.pv .meta { font-size: 12px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+.pv .tg { font-size: 11.5px; font-weight: 600; color: var(--accent); background: var(--accent-soft); border-radius: 4px; padding: 0 6px; }
+.pv .why { display: flex; flex-wrap: wrap; gap: 4px; }
+.pv .why span { font-size: 11.5px; border-radius: 4px; padding: 0 6px; background: var(--input); border: 1px solid var(--border); }
+.pv .why .g { color: #0f7a3d; background: #e3f6ea; border-color: transparent; font-weight: 600; }
+.pv .why .b { color: #b42318; background: #fde8e7; border-color: transparent; font-weight: 600; }
+.pv textarea { font: 13px/1.45 inherit; color: var(--fg); background: var(--input); border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; height: 62px; resize: vertical; -webkit-user-select: text; user-select: text; }
+.pv .cnt { font-size: 11.5px; color: var(--muted); text-align: right; margin-top: -4px; }
+.pv .cnt.over { color: var(--err); font-weight: 600; }
+.pv .ps { font-size: 12.5px; font-weight: 600; }
+.pv .ps.ok { color: var(--ok); } .pv .ps.wait { color: var(--accent); } .pv .ps.bad { color: var(--err); }
+.pprev { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 3px 12px; font-size: 13px; background: var(--input); border-radius: 8px; padding: 8px 12px; }
+.pprev b { font-variant-numeric: tabular-nums; }
+.pprev span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--muted); }
+.pempty { color: var(--muted); padding: 30px 10px; text-align: center; border: 1px dashed var(--border); border-radius: 12px; margin-bottom: 16px; }
+@media (prefers-color-scheme: dark) { .pv .why .g { background: #12351f; color: #6fdc9b; } .pv .why .b { background: #3d1519; color: #ff8a80; } }
+
 
 /* 频道表格 */
 table { width: 100%; border-collapse: collapse; }
@@ -142,6 +175,7 @@ td.del button:hover { background: var(--input); color: var(--err); }
   <h1><span class="logo">TG</span>TG 二创</h1>
   <button data-page="run" class="on"><span class="ico">▶</span>运行</button>
   <button data-page="browse"><span class="ico">🗂</span>浏览</button>
+  <button data-page="post"><span class="ico">📤</span>发帖</button>
   <button data-page="channels"><span class="ico">📺</span>群组</button>
   <button data-page="effects"><span class="ico">🎨</span>效果</button>
   <button data-page="account"><span class="ico">👤</span>账号 <span id="navDot" class="dot"></span></button>
@@ -248,6 +282,58 @@ td.del button:hover { background: var(--input); color: var(--err); }
   <div class="cap" id="lbCap"></div>
   <div class="row" style="margin:0"><button class="btn pri" id="lbDl">下载</button><button class="btn" id="lbPlay">下载并播放</button></div>
 </div>
+
+<!-- ======================= 发帖 ======================= -->
+<section class="page" id="page-post">
+  <h2>发帖</h2>
+  <p class="sub">做好的成品按推荐分从高到低排好。勾上要发的，改好文案，放进回关助手的发帖排期表。</p>
+
+  <div class="card">
+    <div class="pbar">
+      <button class="btn pri" id="pAuto">⭐ 自动挑最好的</button>
+      <input type="number" id="pAutoN" min="1" max="30" value="3" style="width:64px"> 条
+      <label>标签 <select id="pTag"><option value="">全部</option></select></label>
+      <label><input type="checkbox" id="pShowDone"> 显示已排期的</label>
+      <span class="sp"></span>
+      <span class="help" id="pCount"></span>
+      <button class="btn" id="pReload">刷新</button>
+    </div>
+  </div>
+  <div id="pGrid" class="pgrid"></div>
+  <div id="pEmpty" class="pempty hidden">还没有成品。先在「运行」页「下载并处理」，做好的视频会出现在这里。</div>
+
+  <div class="card">
+    <h3>排进发帖排期表 <span class="hint">TG二创 → 时间工作流 → 回关助手，都在你电脑上传，不经过任何服务器</span></h3>
+    <div class="row"><label>从哪天开始</label><select id="pDay"></select></div>
+    <div class="row"><label>每天几点发</label><input type="text" id="pTimes" placeholder="12:00, 18:30, 21:30" style="max-width:320px">
+      <span class="help">用逗号隔开；几个时间就是每天发几条</span></div>
+    <div class="row"><label></label><span class="help">排期表里那个时间已经有内容的，自动往后挪到下一个空格子</span></div>
+    <div class="pprev" id="pPrev"></div>
+    <div class="row" style="margin-bottom:0"><button class="btn pri" id="pGo" disabled>放进发帖排期表</button><button class="btn" id="pClear">清空选择</button>
+      <span class="msg" id="pMsg" style="margin:0"></span></div>
+  </div>
+
+  <div class="card">
+    <h3>选片规则 <span class="hint">TG 的视频下载前就按这个打分，不合格的不下载、不处理</span></h3>
+    <div class="grid2">
+      <div class="row"><label>比群里平时火</label><input type="number" step="0.5" min="0" data-path="pick.min_ratio"> 倍以上才要</div>
+      <div class="row"><label>每次最多下载</label><input type="number" min="1" max="100" data-path="pick.max_downloads"> 条（分最高的）</div>
+      <div class="row"><label>时长</label><input type="number" min="0" data-path="pick.min_sec" style="width:70px"> 到 <input type="number" min="1" data-path="pick.max_sec" style="width:70px"> 秒</div>
+      <div class="row"><label>清晰度至少</label><select data-path="pick.min_short" data-num><option value="0">不限</option><option value="480">480p</option><option value="720">720p</option><option value="1080">1080p</option></select></div>
+    </div>
+    <div class="row"><label>有这些词不要</label><input type="text" id="pBad" placeholder="用逗号隔开"></div>
+    <div class="row"><label>开着</label><label style="width:auto;color:var(--fg)"><input type="checkbox" data-path="pick.on"> 下载前打分（关掉就和以前一样，新视频全下载）</label></div>
+    <p class="help" style="margin:6px 0 0">TG 频道看「比这个群平时火几倍」；普通群组看不到浏览量，就看转发、表情回应、几个群都在发。同一个视频（画面一样）只处理一次，发过的永远不再发。</p>
+  </div>
+
+  <div class="card">
+    <h3>收件箱 <span class="hint">智Tool 等插件下载的视频（抖音 / TikTok / 小红书……），自动收进来一起筛选</span></h3>
+    <div class="row"><label>收哪个文件夹</label><input type="text" data-path="inbox.dir" placeholder="~/Downloads/DataTool"></div>
+    <div class="row"><label></label><label style="width:auto;color:var(--fg)"><input type="checkbox" data-path="inbox.on"> 每次运行先把这里的视频收进来</label>
+      <button class="btn" id="pInbox">现在就收</button></div>
+    <p class="help" style="margin:6px 0 0">智Tool 设置里的「文件保存路径」填：<b style="-webkit-user-select:text;user-select:text">DataTool/{id}__{resolution}__{title}</b>。收进来的视频会从这个文件夹挪走；同一个编号下载两次的，挪到「已导入过的重复视频」。</p>
+  </div>
+</section>
 
 <!-- ======================= 频道 ======================= -->
 <section class="page" id="page-channels">
@@ -1233,6 +1319,129 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "ArrowLeft") lbStep(-1);
   if (e.key === "ArrowRight") lbStep(1);
 });
+
+
+// ---------- 发帖 ----------
+let pItems = [], pSel = new Set(), pCapTimer = {};
+const xLen = (t) => [...String(t || "")].reduce((n, c) => n + (/[ᄀ-￿\u{1F000}-\u{1FFFF}]/u.test(c) ? 2 : 1), 0);
+const pShow = (it) => ($("#pShowDone").checked || !it.post || it.post.status === "failed") && (!$("#pTag").value || (it.tags || []).includes($("#pTag").value) || (it.channel === $("#pTag").value));
+function pDays() {
+  const sel = $("#pDay"); if (sel.options.length) return;
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(Date.now() + i * 864e5), k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    sel.append(new Option((i === 0 ? "今天 " : i === 1 ? "明天 " : "周" + "日一二三四五六"[d.getDay()] + " ") + `${d.getMonth() + 1}/${d.getDate()}`, k));
+  }
+  sel.value = sel.options[1].value;
+}
+const pTimes = () => [...new Set(($("#pTimes").value || "").split(/[,，\s]+/).map((t) => t.trim()).filter((t) => /^\d{1,2}:\d{2}$/.test(t)).map((t) => t.padStart(5, "0")))].sort();
+async function loadPosts() {
+  pDays();
+  $("#pCount").textContent = "读取中…";
+  const r = await api.post_list();
+  if (!r.ok) { $("#pCount").textContent = "读取失败：" + r.error; return; }
+  pItems = r.items;
+  const tags = [...new Set(pItems.flatMap((x) => [...(x.tags || []), x.channel]).filter(Boolean))];
+  const ts = $("#pTag"), cur = ts.value; ts.length = 1; tags.forEach((t) => ts.append(new Option(t, t))); ts.value = tags.includes(cur) ? cur : "";
+  for (const id of [...pSel]) { const it = pItems.find((x) => x.id === id); if (!it || it.out || it.post) pSel.delete(id); }
+  renderPosts();
+}
+function renderPosts() {
+  const g = $("#pGrid"); g.textContent = "";
+  const list = pItems.filter(pShow);
+  $("#pEmpty").classList.toggle("hidden", pItems.length > 0);
+  const good = pItems.filter((x) => !x.out && !x.post).length, waiting = pItems.filter((x) => x.post && x.post.status === "waiting").length;
+  $("#pCount").textContent = `成品 ${pItems.length} 条 · 可以发 ${good} · 不推荐 ${pItems.filter((x) => x.out).length}` + (waiting ? ` · 正在放进排期表 ${waiting}` : "") + ` · 已选 ${pSel.size}`;
+  for (const it of list) {
+    const card = document.createElement("div");
+    card.className = "pv" + (pSel.has(it.id) ? " sel" : "") + (it.out ? " out" : "") + (it.post && it.post.status !== "failed" ? " posted" : "");
+    const th = document.createElement("div"); th.className = "th"; if (it.thumb) th.style.backgroundImage = `url("${it.thumb}")`;
+    const sc = document.createElement("span"); sc.className = "sc" + (it.out ? " low" : it.score < 70 ? " mid" : ""); sc.textContent = it.out ? "不推荐" : "推荐 " + it.score;
+    const ck = document.createElement("span"); ck.className = "ck"; ck.textContent = pSel.has(it.id) ? "✓" : "";
+    const du = document.createElement("span"); du.className = "du"; du.textContent = `${Math.floor(it.duration / 60)}:${String(Math.round(it.duration % 60)).padStart(2, "0")} · ${it.size_mb} MB`;
+    th.append(ck, sc, du);
+    th.title = it.out ? "不推荐的不能选" : "点一下选中 / 取消";
+    th.addEventListener("click", () => {
+      if (it.out || (it.post && it.post.status !== "failed")) return;
+      pSel.has(it.id) ? pSel.delete(it.id) : pSel.add(it.id); renderPosts(); renderPlan();
+    });
+    const vb = document.createElement("div"); vb.className = "vb";
+    const meta = document.createElement("div"); meta.className = "meta";
+    (it.tags || []).forEach((t) => { const s = document.createElement("span"); s.className = "tg"; s.textContent = t; meta.append(s); });
+    meta.append(Object.assign(document.createElement("span"), { textContent: it.channel || "" }), Object.assign(document.createElement("span"), { textContent: it.date }));
+    const why = document.createElement("div"); why.className = "why";
+    (it.reasons || []).forEach(([k, t]) => why.append(Object.assign(document.createElement("span"), { className: k, textContent: t })));
+    const ta = document.createElement("textarea"); ta.value = it.caption || ""; ta.placeholder = "写一句文案（可以空着只发视频）";
+    const cnt = document.createElement("div"); cnt.className = "cnt";
+    const upd = () => { const n = xLen(ta.value); cnt.textContent = `${n} / 280`; cnt.classList.toggle("over", n > 280); };
+    upd();
+    ta.addEventListener("input", () => {
+      it.caption = ta.value; upd(); renderPlan();
+      clearTimeout(pCapTimer[it.id]); pCapTimer[it.id] = setTimeout(() => api.post_caption(it.id, ta.value), 600);
+    });
+    vb.append(meta, why, ta, cnt);
+    if (it.post) {
+      const ps = document.createElement("div");
+      const st = it.post.status;
+      ps.className = "ps " + (st === "done" ? "ok" : st === "failed" ? "bad" : "wait");
+      ps.textContent = st === "done" ? `✓ 已放进排期表 ${it.post.day.slice(5).replace("-", "/")} ${it.post.hm}` : st === "failed" ? `⚠ 没放进去：${it.post.error || ""}（可以重新选）`
+        : `⏳ 等时间工作流来取（排 ${it.post.day.slice(5).replace("-", "/")} ${it.post.hm}）`;
+      vb.append(ps);
+      if (st === "waiting") { const b = document.createElement("button"); b.className = "btn"; b.textContent = "取消"; b.addEventListener("click", async () => { await api.post_cancel(it.id); loadPosts(); }); vb.append(b); }
+    }
+    card.append(th, vb);
+    g.append(card);
+  }
+}
+function pChosen() { return pItems.filter((x) => pSel.has(x.id)).sort((a, b) => b.score - a.score); }
+function renderPlan() {
+  const box = $("#pPrev"); box.textContent = "";
+  const times = pTimes(), list = pChosen(), day0 = new Date($("#pDay").value + "T00:00:00");
+  list.forEach((it, i) => {
+    const d = new Date(day0.getTime() + Math.floor(i / Math.max(1, times.length)) * 864e5);
+    box.append(Object.assign(document.createElement("b"), { textContent: times.length ? `${d.getMonth() + 1}/${d.getDate()} ${times[i % times.length]}` : "—" }),
+      Object.assign(document.createElement("span"), { textContent: (it.caption || "（只有视频）").replace(/\s+/g, " ") }));
+  });
+  box.classList.toggle("hidden", !list.length);
+  const over = list.some((x) => xLen(x.caption) > 280);
+  $("#pGo").disabled = !list.length || !times.length || over;
+  $("#pGo").textContent = list.length ? `放进发帖排期表（${list.length} 条）` : "放进发帖排期表";
+  $("#pMsg").className = "msg" + (over ? " err" : "");
+  $("#pMsg").textContent = over ? "有文案超过 280 字（中文、表情算 2 个字），X 发不出去，改短一点" : !times.length && list.length ? "先填每天几点发" : "";
+}
+$("#pAuto").addEventListener("click", () => {
+  const n = Math.max(1, Number($("#pAutoN").value) || 3);
+  pSel = new Set(pItems.filter((x) => !x.out && !x.post && pShow(x)).sort((a, b) => b.score - a.score).slice(0, n).map((x) => x.id));
+  renderPosts(); renderPlan();
+});
+$("#pClear").addEventListener("click", () => { pSel.clear(); renderPosts(); renderPlan(); });
+$("#pReload").addEventListener("click", loadPosts);
+$("#pTag").addEventListener("change", renderPosts);
+$("#pShowDone").addEventListener("change", renderPosts);
+$("#pDay").addEventListener("change", renderPlan);
+$("#pTimes").addEventListener("input", renderPlan);
+$("#pTimes").addEventListener("change", () => { cfg.pick = cfg.pick || {}; cfg.pick.times = pTimes(); save(); });
+$("#pBad").addEventListener("change", () => { cfg.pick = cfg.pick || {}; cfg.pick.bad_words = $("#pBad").value.split(/[,，]+/).map((x) => x.trim()).filter(Boolean); save(); });
+$("#pInbox").addEventListener("click", async () => {
+  const r = await api.inbox_collect();
+  toast(r.ok ? (r.count ? `收进 ${r.count} 个视频，去「运行」页点「只处理」做成成品` : `${r.dir} 里没有新视频`) : "收件箱：" + r.error);
+});
+$("#pGo").addEventListener("click", async () => {
+  const list = pChosen(), btn = $("#pGo");
+  btn.disabled = true;
+  const r = await api.post_queue(list.map((x) => ({ id: x.id, text: x.caption || "" })), $("#pDay").value, pTimes());
+  if (!r.ok) { $("#pMsg").className = "msg err"; $("#pMsg").textContent = r.error; btn.disabled = false; return; }
+  pSel.clear();
+  renderPlan();
+  $("#pMsg").className = "msg ok";
+  $("#pMsg").textContent = `✓ ${r.added.length} 条排好了。时间工作流一分钟内会来取，交给回关助手放进排期表（要开着 Chrome）。`;
+  loadPosts();
+});
+$("nav button[data-page=post]").addEventListener("click", () => {
+  $("#pTimes").value = ((cfg.pick && cfg.pick.times) || ["12:00", "18:30", "21:30"]).join(", ");
+  $("#pBad").value = ((cfg.pick && cfg.pick.bad_words) || []).join(", ");
+  loadPosts(); renderPlan();
+});
+setInterval(() => { if ($("#page-post").classList.contains("on") && pItems.some((x) => x.post && x.post.status === "waiting")) loadPosts(); }, 15000);
 
 let logNext = 0;
 let polling = false;

@@ -4,6 +4,9 @@
   GET  /status  → 版本、是不是正在运行、在做什么、最近几行日志
   POST /run     → {"mode": "all" | "download" | "process"}  和点「下载并处理 / 只下载 / 只处理」一样
   POST /stop    → 和点「停止」一样
+  GET  /postq   → 「发帖」页排进队列、等着放进回关助手排期表的视频
+  GET  /file?q=队列编号&off=从哪个字节&len=多少  → 读这个视频的一段（时间工作流分段转给回关助手）
+  POST /postq/done → {"qid", "ok", "day", "hm", "error"} 放进去了没有
 别的网页、别的插件都调不了；端口被占了就不开（不影响 TG二创 其他功能）。
 
 只用 socket 和 threading（打包好的程序里一定有），不用 http.server：
@@ -26,6 +29,12 @@ MAX_BODY = 4096
 _sock: socket.socket | None = None
 _lock = threading.Lock()
 REASONS = {200: "OK", 400: "Bad Request", 403: "Forbidden", 404: "Not Found", 405: "Method Not Allowed"}
+
+
+def _reply_bytes(conn: socket.socket, data: bytes) -> None:
+    head = (f"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {len(data)}\r\n"
+            "Cache-Control: no-store\r\nConnection: close\r\n\r\n").encode("ascii")
+    conn.sendall(head + data)
 
 
 def _reply(conn: socket.socket, code: int, data: dict) -> None:
@@ -67,7 +76,8 @@ def _read_request(conn: socket.socket):
         if not chunk:
             break
         rest += chunk
-    return method.upper(), path.split("?")[0], headers, rest[:n]
+    path, _, query = path.partition("?")
+    return method.upper(), path, headers, rest[:n], query
 
 
 def handle(api, version: str, method: str, path: str, headers: dict, body: bytes) -> tuple[int, dict]:
@@ -80,7 +90,10 @@ def handle(api, version: str, method: str, path: str, headers: dict, body: bytes
     if method == "GET" and path == "/status":
         p = api.poll(max(0, len(api._lines) - 6))
         return 200, {"ok": True, "app": "TG二创", "version": version, "running": p["running"],
-                     "status": p["status"], "progress": p["progress"], "lines": p["lines"][-6:]}
+                     "status": p["status"], "progress": p["progress"], "lines": p["lines"][-6:],
+                     "postq": len(api._postq_waiting())}
+    if method == "GET" and path == "/postq":
+        return 200, {"ok": True, "jobs": api._postq_waiting()}
     if method != "POST":
         return (404 if path not in ("/run", "/stop") else 405), {"ok": False, "error": "not found"}
     if origin is None:                                          # 会改动东西的请求，必须是时间工作流插件发的
@@ -102,7 +115,31 @@ def handle(api, version: str, method: str, path: str, headers: dict, body: bytes
         return 200, r
     if path == "/stop":
         return 200, api.stop()
+    if path == "/postq/done":
+        return 200, api._postq_done(str(data.get("qid") or ""), bool(data.get("ok")), str(data.get("day") or ""),
+                                     str(data.get("hm") or ""), str(data.get("error") or "")[:300])
     return 404, {"ok": False, "error": "not found"}
+
+
+MAX_PIECE = 8 * 1024 * 1024
+
+
+def _send_file(api, conn: socket.socket, headers: dict, query: str) -> None:
+    """读队列里某个视频的一段：/file?q=编号&off=0&len=8388608（只给排进了发帖队列的视频）"""
+    if headers.get("host", "") not in ALLOWED_HOSTS or (headers.get("origin") is not None and headers.get("origin") not in ALLOWED_ORIGINS):
+        return _reply(conn, 403, {"ok": False, "error": "forbidden"})
+    qs = dict(kv.partition("=")[::2] for kv in query.split("&") if kv)
+    f = api._postq_file(qs.get("q", ""))
+    if not f or not f.exists():
+        return _reply(conn, 404, {"ok": False, "error": "没有这个视频"})
+    try:
+        off = max(0, int(qs.get("off") or 0))
+        n = max(0, min(int(qs.get("len") or MAX_PIECE), MAX_PIECE))
+    except ValueError:
+        return _reply(conn, 400, {"ok": False, "error": "bad range"})
+    with open(f, "rb") as fp:
+        fp.seek(off)
+        _reply_bytes(conn, fp.read(n))
 
 
 def _client(api, version: str, conn: socket.socket) -> None:
@@ -112,7 +149,10 @@ def _client(api, version: str, conn: socket.socket) -> None:
         if req is None:
             _reply(conn, 400, {"ok": False, "error": "bad request"})
             return
-        code, data = handle(api, version, *req)
+        method, path, headers, body, query = req
+        if method == "GET" and path == "/file":
+            return _send_file(api, conn, headers, query)
+        code, data = handle(api, version, method, path, headers, body)
         _reply(conn, code, data)
     except Exception:  # noqa: BLE001  一个请求出错不影响别的
         pass

@@ -13,6 +13,12 @@ DEFAULTS = {
                  "proxy": {"auto": True, "type": "socks5", "host": "", "port": 0}},
     "channels": [],
     "download": {"min_duration": 5, "max_duration": 300, "max_size_mb": 500, "concurrency": 3, "connections": 6},
+    # 选片：下载前给 TG 视频打分，只下载合适的（比这个群平时火 N 倍以上、时长、清晰度、没有广告词），每次最多下载 max_downloads 条
+    "pick": {"on": True, "min_ratio": 2.0, "min_sec": 5, "max_sec": 140, "min_short": 720, "max_downloads": 15,
+             "bad_words": ["加微信", "微信号", "vx", "私聊", "代理", "招商", "t.me/", "加群", "进群", "返利", "优惠券", "兼职", "博彩", "上车"],
+             "times": ["12:00", "18:30", "21:30"]},
+    # 收件箱：智Tool 等插件下载到这个文件夹的视频，自动收进素材库
+    "inbox": {"on": True, "dir": "~/Downloads/DataTool"},
     "process": {
         "trim_head": 0,
         "trim_tail": 0,

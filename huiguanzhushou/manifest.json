@@ -1,0 +1,52 @@
+{
+  "manifest_version": 3,
+  "name": "回关助手 · X 涨粉小工具",
+  "version": "2.28.1",
+  "description": "清理没回关你的人；找出 #蓝V互关 帖子里你还没关注的人；发帖排期提醒。待关注池打开后自动连点关注（3.5 秒一个、满 15 个停），取关池打开后自动连点取关（3 秒一个、满 50 个停），开始/停止按钮随时可控。",
+  "minimum_chrome_version": "111",
+  "permissions": [
+    "storage",
+    "alarms",
+    "notifications",
+    "unlimitedStorage",
+    "contextMenus"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://x.com/*",
+        "https://twitter.com/*"
+      ],
+      "js": [
+        "main.js"
+      ],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://x.com/*",
+        "https://twitter.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "content.css"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "action": {
+    "default_title": "回关助手：打开最新的互关帖"
+  },
+  "options_page": "schedule.html"
+}

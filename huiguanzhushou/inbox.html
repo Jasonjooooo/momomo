@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>待回复评论 · 回关助手</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #ffffff; --ink: #0f1419; --mute: #536471; --line: #dde3e8; --field: #f7f9fa;
+    --blue: #1d9bf0; --green: #00875a; --amber: #b26b00; --red: #d42230; --soft: #e8f5fe;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0b0f14; --card: #15202b; --ink: #eef2f5; --mute: #8b98a5; --line: #2f3d4a; --field: #0f1923;
+      --blue: #1d9bf0; --green: #00ba7c; --amber: #ffad1f; --red: #f4212e; --soft: #10273a; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 80px; display: flex; flex-direction: column; gap: 14px; }
+  h1 { margin: 0; font-size: 22px; }
+  .lede { margin: 4px 0 0; color: var(--mute); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  button { font: inherit; cursor: pointer; border-radius: 999px; padding: 6px 14px; border: 1px solid var(--line); background: transparent; color: var(--ink); white-space: nowrap; }
+  button.primary { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .tabs { display: flex; gap: 4px; background: var(--field); border: 1px solid var(--line); border-radius: 999px; padding: 3px; }
+  .tabs button { border: 0; padding: 4px 14px; }
+  .tabs button[aria-pressed="true"] { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,.12); font-weight: 700; }
+  .msg { font-size: 13px; color: var(--mute); }
+  .msg.ok { color: var(--green); } .msg.err { color: var(--red); }
+  .list { display: flex; flex-direction: column; gap: 10px; }
+  .c { display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
+  .c.done { opacity: 0.55; }
+  .av { width: 40px; height: 40px; border-radius: 50%; background: var(--field) center/cover no-repeat; }
+  .hd { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+  .hd b { font-size: 14.5px; }
+  .hd .sub { color: var(--mute); font-size: 13px; }
+  .tx { white-space: pre-wrap; word-break: break-word; margin: 3px 0 8px; font-size: 14.5px; }
+  .tag { font-size: 11.5px; color: var(--mute); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; margin-left: 4px; }
+  .acts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .acts button { padding: 4px 12px; font-size: 13px; }
+  .state { font-size: 12.5px; font-weight: 600; color: var(--green); }
+  .empty { color: var(--mute); text-align: center; padding: 36px 0; }
+  .pt { font-size: 12.5px; color: var(--mute); margin: -4px 0 8px; padding-left: 8px; border-left: 2px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rb { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+  .rb textarea { font: inherit; color: var(--ink); background: var(--field); border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; min-height: 64px; resize: vertical; }
+  .rb textarea:focus { outline: 2px solid var(--blue); outline-offset: -1px; }
+  .rb-row { display: flex; justify-content: flex-end; align-items: center; gap: 10px; }
+  .cnt { font-size: 12px; color: var(--mute); }
+  .cnt.over { color: var(--amber); font-weight: 600; }
+  .mr { font-size: 13px; color: var(--mute); margin: -2px 0 8px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>待回复评论</h1>
+    <p class="lede">你最近主帖下面、你还没回的评论都在这里。直接在下面的框里写回复点「回复」就发出去（⌘/Ctrl + 回车也行），发完自动划掉。回过的、不想回的，也可以手动标掉。</p>
+  </header>
+
+  <section class="card">
+    <div class="bar">
+      <button type="button" class="primary" id="fetch">抓取最新评论</button>
+      <div class="tabs" role="group" aria-label="筛选">
+        <button type="button" id="tab-todo" aria-pressed="true">待回复 <span id="n-todo"></span></button>
+        <button type="button" id="tab-done" aria-pressed="false">已处理 <span id="n-done"></span></button>
+      </div>
+      <button type="button" id="clear-done">清空已处理</button>
+    </div>
+    <p class="msg" id="msg" role="status"></p>
+  </section>
+
+  <div class="list" id="list"></div>
+</main>
+<script src="inbox.js"></script>
+</body>
+</html>

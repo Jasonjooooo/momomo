@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import check_volume, folder, resolve
+from . import picker
 from .edit import build_segments, plan_shots
 from .overlays import sticker_filters, text_filters
 from . import voiceover as vo
@@ -568,6 +569,23 @@ def process_one(job: Job, cfg: dict, font: str | None, out_dir: Path, seconds: f
     return out
 
 
+def _write_out_meta(out: Path, job: Job, fp) -> None:
+    """成品旁边放一个 .json：来源、推荐分、文案草稿，「发帖」页用"""
+    try:
+        dur = probe(out).duration
+    except Exception:  # noqa: BLE001
+        dur = 0.0
+    pick = job.meta.get("pick") or {"score": 50, "reasons": [["", "没有热度数据（以前下载的 / 本地视频）"]], "out": False, "source": "local"}
+    meta = {"src": job.key, "channel_title": job.meta.get("channel_title") or job.meta.get("channel", ""),
+            "link": job.meta.get("link", ""), "text": job.meta.get("text", ""), "title": job.meta.get("_title", ""),
+            "tags": job.meta.get("tags") or [], "pick": pick, "duration": round(dur, 1), "fp": fp,
+            "created": datetime.now().isoformat(timespec="seconds"), "post": None}
+    try:
+        out.with_suffix(".json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+    except OSError:
+        pass
+
+
 def process_all(cfg: dict, state: State, redo: bool = False, limit: int | None = None,
                 only: Path | None = None, seconds: float | None = None, text: str = "",
                 on_done=None) -> int:
@@ -597,12 +615,34 @@ def process_all(cfg: dict, state: State, redo: bool = False, limit: int | None =
         return 0
 
     out_dir = folder(cfg, "output") / datetime.now().strftime("%Y-%m-%d")
-    ok = 0
+    ok = skipped = 0
     log(f"🎬 开始处理 {len(jobs)} 个视频 → {out_dir}")
     for i, job in enumerate(jobs, 1):
         check_stop()
         log(f"[{i}/{len(jobs)}] {job.key}")
         started = datetime.now()
+        # 指纹去重：画面一样的视频（不同群、抖音和 TG 都有……）只处理第一个；发过的不再处理
+        fp = None
+        pk = job.meta.get("pick") or {}
+        if not only and pk.get("out"):          # 选片不合格（广告、太长、太短）：不处理
+            why = "；".join(r[1].lstrip("✗ ") for r in pk.get("reasons", []) if r[0] == "b") or "不合格"
+            log(f"    ⏭ 不处理：{why}")
+            state.mark_processed(job.key)
+            state.save()
+            skipped += 1
+            continue
+        if not only:
+            try:
+                fp = picker.fingerprint(job.src, probe(job.src).duration)
+            except Exception:  # noqa: BLE001
+                fp = None
+            same = picker.find_same(state.data, fp) if fp else None
+            if same:
+                log(f"    ⏭ 和 {same.get('k')} 是同一个视频" + ("（已经发过了）" if same.get("posted") else "") + "，跳过")
+                state.mark_processed(job.key)
+                state.save()
+                skipped += 1
+                continue
         try:
             out = process_one(job, cfg, font, out_dir, seconds)
         except ProcessError as e:
@@ -612,8 +652,12 @@ def process_all(cfg: dict, state: State, redo: bool = False, limit: int | None =
         log(f"    ✅ {out.name}（用时 {secs:.0f} 秒）")
         ok += 1
         if not only:
+            if fp:
+                state.data.setdefault("fp", []).append({"k": job.key, "h": fp, "out": str(out)})
+                del state.data["fp"][:-5000]
             state.mark_processed(job.key)
             state.save()
+            _write_out_meta(out, job, fp)
         if on_done:
             try:
                 on_done(job, out)
@@ -630,5 +674,6 @@ def process_all(cfg: dict, state: State, redo: bool = False, limit: int | None =
             "标签": "、".join(job.meta.get("tags") or []),
             "成品": str(out.relative_to(out_dir)) if out.is_relative_to(out_dir) else out.name,
         })
-    log(f"\n✅ 处理完成：成功 {ok} 个，失败 {len(jobs) - ok} 个")
+    failed = len(jobs) - ok - skipped
+    log(f"\n✅ 处理完成：成功 {ok} 个" + (f"，跳过 {skipped} 个（重复 / 不合格）" if skipped else "") + (f"，失败 {failed} 个" if failed else ""))
     return ok

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 import copy
 import subprocess
@@ -9,7 +10,7 @@ import sys
 import threading
 import time
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import yaml
@@ -245,7 +246,7 @@ class Api:
     def save_config(self, data: dict) -> dict:
         try:
             cfg = self._cfg()
-            for k in ("telegram", "channels", "download", "process"):
+            for k in ("telegram", "channels", "download", "process", "pick", "inbox"):
                 if k in data:
                     cfg[k] = data[k]
             self._write_cfg(cfg)
@@ -512,7 +513,12 @@ class Api:
         cfg = self._cfg()
         state = State(self._root / "state.json")
         try:
-            if mode in ("all", "download"):
+            from tgremix import picker
+
+            picker.collect_inbox(cfg, folder(cfg, "downloads"))      # 智Tool 等插件下载的视频，先收进素材库
+            if mode in ("all", "download") and not cfg["channels"]:
+                log("ℹ️ 还没有添加 TG 群组，跳过 TG 下载")
+            elif mode in ("all", "download"):
                 self._set_status("连接 Telegram…")
                 log("—— 开始下载 ——")
                 client = self._tg.run(self._tg.ensure(cfg), timeout=60)
@@ -683,6 +689,222 @@ class Api:
         if not res:
             return ""
         return str(res[0] if isinstance(res, (list, tuple)) else res)
+
+    # ------------------------------------------------------------ 发帖：挑成品、改文案、放进回关助手的发帖排期表
+    def _out_root(self) -> Path:
+        return folder(self._cfg(), "output")
+
+    def _post_items(self) -> list[dict]:
+        """最近 7 天的成品（有 .json 的，就是处理时记了来源和推荐分的）"""
+        root = self._out_root()
+        cut = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        items = []
+        for d in sorted(root.iterdir()) if root.exists() else []:
+            if not d.is_dir() or d.name < cut or d.name == "试效果":
+                continue
+            for f in d.rglob("*.mp4"):
+                mf = f.with_suffix(".json")
+                if not mf.exists():
+                    continue
+                try:
+                    meta = json.loads(mf.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    continue
+                items.append({"f": f, "meta": meta, "id": str(f.relative_to(root))})
+        return items
+
+    def _thumb(self, f: Path) -> str:
+        import base64
+        import hashlib
+
+        from tgremix.runtime import ffmpeg_bin
+
+        cache = self._root / ".thumbs"
+        cache.mkdir(exist_ok=True)
+        t = cache / (hashlib.md5(str(f).encode("utf-8")).hexdigest() + ".jpg")
+        if not t.exists():
+            subprocess.run([ffmpeg_bin("ffmpeg"), "-v", "error", "-y", "-ss", "1", "-i", str(f), "-frames:v", "1",
+                            "-vf", "scale=360:-2", "-q:v", "5", str(t)], capture_output=True, timeout=60)
+        return "data:image/jpeg;base64," + base64.b64encode(t.read_bytes()).decode() if t.exists() else ""
+
+    @staticmethod
+    def _caption(meta: dict) -> str:
+        """文案草稿：原帖文字去掉链接、@、多余空白"""
+        if meta.get("caption") is not None:
+            return meta["caption"]
+        t = re.sub(r"https?://\S+|t\.me/\S+|@\w+", "", meta.get("text") or meta.get("title") or "")
+        return re.sub(r"\s+", " ", t).strip()[:200]
+
+    def post_list(self) -> dict:
+        try:
+            out = []
+            for it in self._post_items():
+                m, f = it["meta"], it["f"]
+                p = m.get("pick") or {}
+                out.append({"id": it["id"], "date": f.parent.name if f.parent.parent == self._out_root() else f.parent.parent.name,
+                            "channel": m.get("channel_title", ""), "tags": m.get("tags") or [], "score": p.get("score", 50),
+                            "out": bool(p.get("out")), "reasons": p.get("reasons") or [], "views": p.get("views") or 0,
+                            "source": p.get("source", ""), "duration": m.get("duration", 0),
+                            "size_mb": round(f.stat().st_size / 1048576, 1), "caption": self._caption(m), "post": m.get("post"),
+                            "thumb": self._thumb(f)})
+            out.sort(key=lambda x: (x["out"], bool(x["post"]), -x["score"]))
+            return {"ok": True, "items": out}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": _friendly(e)}
+
+    def _meta_path(self, item_id: str) -> Path:
+        root = self._out_root().resolve()
+        f = (root / item_id).resolve()
+        if root not in f.parents or f.suffix != ".mp4" or not f.exists():
+            raise UserError("找不到这个成品，可能被删了或者挪走了")
+        return f
+
+    def post_caption(self, item_id: str, text: str) -> dict:
+        try:
+            mf = self._meta_path(item_id).with_suffix(".json")
+            meta = json.loads(mf.read_text(encoding="utf-8"))
+            meta["caption"] = str(text or "")[:1000]
+            mf.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+            return {"ok": True}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": str(e) if isinstance(e, UserError) else _friendly(e)}
+
+    def _queue_path(self) -> Path:
+        return self._root / "发帖队列.json"
+
+    def _queue(self) -> dict:
+        try:
+            return json.loads(self._queue_path().read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"jobs": []}
+
+    def _save_queue(self, q: dict) -> None:
+        q["jobs"] = [j for j in q["jobs"] if j["status"] in ("waiting", "sending") or time.time() - j.get("at", 0) < 14 * 86400]
+        tmp = self._queue_path().with_suffix(".tmp")
+        tmp.write_text(json.dumps(q, ensure_ascii=False, indent=1), encoding="utf-8")
+        tmp.replace(self._queue_path())
+
+    def _set_post(self, f: Path, post: dict | None) -> None:
+        mf = f.with_suffix(".json")
+        try:
+            meta = json.loads(mf.read_text(encoding="utf-8"))
+            meta["post"] = post
+            mf.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+        except (OSError, ValueError):
+            pass
+
+    def post_queue(self, items: list, start_day: str, times: list) -> dict:
+        """把选好的成品排进队列：按「从哪天开始、每天几点」依次排，时间线插件（时间工作流）一分钟内来取，交给回关助手放进排期表"""
+        try:
+            times = sorted({t for t in (times or []) if re.fullmatch(r"\d{2}:\d{2}", str(t))})
+            if not times:
+                return {"ok": False, "error": "至少要设一个发帖时间"}
+            if not items:
+                return {"ok": False, "error": "还没有选视频"}
+            day0 = datetime.strptime(start_day, "%Y-%m-%d")
+            with self._lock:
+                q = self._queue()
+                busy = {j["file"] for j in q["jobs"] if j["status"] in ("waiting", "sending")}
+                added = []
+                for i, it in enumerate(items):
+                    f = self._meta_path(it["id"])
+                    if str(f) in busy:
+                        continue
+                    day = (day0 + timedelta(days=i // len(times))).strftime("%Y-%m-%d")
+                    hm = times[i % len(times)]
+                    text = str(it.get("text") or "")[:1000]
+                    qid = f"q{int(time.time() * 1000):x}{i}"
+                    q["jobs"].append({"qid": qid, "file": str(f), "text": text, "day": day, "hm": hm, "status": "waiting", "at": time.time()})
+                    self._set_post(f, {"status": "waiting", "day": day, "hm": hm, "qid": qid})
+                    meta_f = f.with_suffix(".json")
+                    try:
+                        meta = json.loads(meta_f.read_text(encoding="utf-8"))
+                        meta["caption"] = text
+                        meta_f.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+                    except (OSError, ValueError):
+                        pass
+                    added.append({"id": it["id"], "day": day, "hm": hm})
+                self._save_queue(q)
+            log(f"📤 {len(added)} 条放进发帖队列，等时间工作流取走交给回关助手（一分钟内）")
+            return {"ok": True, "added": added}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": str(e) if isinstance(e, UserError) else _friendly(e)}
+
+    def post_cancel(self, item_id: str) -> dict:
+        try:
+            f = self._meta_path(item_id)
+            with self._lock:
+                q = self._queue()
+                for j in q["jobs"]:
+                    if j["file"] == str(f) and j["status"] == "waiting":
+                        j["status"] = "cancelled"
+                        j["at"] = time.time()
+                self._save_queue(q)
+            self._set_post(f, None)
+            return {"ok": True}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": str(e) if isinstance(e, UserError) else _friendly(e)}
+
+    # 给时间工作流用（tgremix/link.py 调）：取队列、读视频、回报结果
+    def _postq_waiting(self) -> list[dict]:
+        with self._lock:
+            q = self._queue()
+            out = []
+            for j in q["jobs"]:
+                if j["status"] == "sending" and time.time() - j.get("sent_at", 0) > 600:
+                    j["status"] = "waiting"          # 上次传到一半断了：重新来
+                if j["status"] == "waiting" and Path(j["file"]).exists():
+                    out.append({"qid": j["qid"], "name": Path(j["file"]).name, "size": Path(j["file"]).stat().st_size,
+                                "type": "video/mp4", "text": j["text"], "day": j["day"], "hm": j["hm"]})
+            return out
+
+    def _postq_file(self, qid: str) -> Path | None:
+        with self._lock:
+            q = self._queue()
+            for j in q["jobs"]:
+                if j["qid"] == qid and j["status"] in ("waiting", "sending"):
+                    if j["status"] == "waiting":
+                        j["status"] = "sending"
+                        j["sent_at"] = time.time()
+                        self._save_queue(q)
+                    return Path(j["file"])
+        return None
+
+    def _postq_done(self, qid: str, ok: bool, day: str = "", hm: str = "", error: str = "") -> dict:
+        with self._lock:
+            q = self._queue()
+            job = next((j for j in q["jobs"] if j["qid"] == qid), None)
+            if not job:
+                return {"ok": False, "error": "没有这个任务"}
+            job["status"] = "done" if ok else "failed"
+            job["at"] = time.time()
+            if ok:
+                job["day"], job["hm"] = day or job["day"], hm or job["hm"]
+            else:
+                job["error"] = error
+            self._save_queue(q)
+        f = Path(job["file"])
+        self._set_post(f, {"status": "done", "day": job["day"], "hm": job["hm"]} if ok else {"status": "failed", "error": error})
+        if ok:      # 发过的视频记下来，以后同样画面的不再处理
+            st = State(self._root / "state.json")
+            for rec in st.data.get("fp", []):
+                if rec.get("out") == str(f):
+                    rec["posted"] = True
+            st.save()
+            log(f"📅 已放进发帖排期表：{job['day']} {job['hm']} · {f.name}")
+        else:
+            log(f"⚠️ 没放进发帖排期表：{f.name}：{error}")
+        return {"ok": True}
+
+    def inbox_collect(self) -> dict:
+        try:
+            from tgremix import picker
+
+            cfg = self._cfg()
+            n = picker.collect_inbox(cfg, folder(cfg, "downloads"))
+            return {"ok": True, "count": n, "dir": str(Path(str((cfg.get("inbox") or {}).get("dir") or "~/Downloads/DataTool")).expanduser())}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": _friendly(e)}
 
     # ------------------------------------------------------------ 下载 / 成品文件夹
     def _paths(self, cfg: dict) -> dict:

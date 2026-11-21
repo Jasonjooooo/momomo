@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>热点雷达 · 回关助手</title>
+<style>
+  :root {
+    --bg: #f4f6f8; --card: #ffffff; --ink: #0f1419; --mute: #536471; --line: #dde3e8; --field: #f7f9fa;
+    --blue: #1d9bf0; --green: #00875a; --amber: #b26b00; --red: #d42230; --soft: #e8f5fe;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0b0f14; --card: #15202b; --ink: #eef2f5; --mute: #8b98a5; --line: #2f3d4a; --field: #0f1923;
+      --blue: #1d9bf0; --green: #00ba7c; --amber: #ffad1f; --red: #f4212e; --soft: #10273a; color-scheme: dark; }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; }
+  main { max-width: 980px; margin: 0 auto; padding: 24px 16px 80px; display: flex; flex-direction: column; gap: 14px; }
+  h1 { margin: 0; font-size: 22px; }
+  h2 { margin: 0 0 10px; font-size: 15px; }
+  h2 small { font-weight: 400; color: var(--mute); margin-left: 6px; }
+  .lede { margin: 4px 0 0; color: var(--mute); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  button, select, input { font: inherit; color: var(--ink); }
+  button { cursor: pointer; border-radius: 999px; padding: 6px 14px; border: 1px solid var(--line); background: transparent; white-space: nowrap; }
+  button.primary { background: var(--blue); border-color: var(--blue); color: #fff; font-weight: 600; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  select, input[type="text"], input[type="number"] { background: var(--field); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; }
+  label.f { display: inline-flex; gap: 6px; align-items: center; color: var(--mute); font-size: 13px; }
+  .msg { font-size: 13px; color: var(--mute); margin: 8px 0 0; }
+  .msg.ok { color: var(--green); } .msg.err { color: var(--red); }
+  details summary { cursor: pointer; color: var(--mute); font-size: 13px; margin-top: 10px; }
+  .set { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; align-items: center; }
+  .set input[type="text"] { width: 260px; }
+  .set input[type="number"] { width: 70px; }
+  .sum { font-size: 15px; line-height: 1.7; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .stat { background: var(--field); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+  .stat b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--mute); font-size: 12.5px; }
+  .meter { height: 6px; border-radius: 3px; background: var(--line); margin-top: 6px; overflow: hidden; display: flex; }
+  .meter i { display: block; height: 100%; }
+  .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid var(--line); background: var(--field); border-radius: 999px; padding: 3px 10px; cursor: pointer; font-size: 13px; }
+  .chip small { color: var(--mute); margin-left: 4px; font-variant-numeric: tabular-nums; }
+  .chip.l1 { font-size: 13px; } .chip.l2 { font-size: 14.5px; font-weight: 600; } .chip.l3 { font-size: 16.5px; font-weight: 700; border-color: var(--blue); }
+  .chip[aria-pressed="true"] { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .chip[aria-pressed="true"] small { color: #fff; }
+  .empty { color: var(--mute); font-size: 13px; }
+  .list { display: flex; flex-direction: column; gap: 8px; }
+  .p { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .p:first-child { border-top: 0; }
+  .av { width: 36px; height: 36px; border-radius: 50%; background: var(--field) center/cover no-repeat; }
+  .hd { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; font-size: 13px; }
+  .hd .sub { color: var(--mute); }
+  .tx { white-space: pre-wrap; word-break: break-word; margin: 2px 0 4px; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+  .tx mark { background: rgba(29, 155, 240, 0.22); color: inherit; border-radius: 3px; }
+  .mt { color: var(--mute); font-size: 12.5px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .heat { font-weight: 700; font-size: 13px; padding: 2px 8px; border-radius: 999px; background: rgba(244, 33, 46, 0.12); color: var(--red); height: fit-content; white-space: nowrap; }
+  .heat.t3 { background: rgba(255, 122, 0, 0.14); color: var(--amber); }
+  a { color: var(--blue); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>热点雷达</h1>
+    <p class="lede">收集「新发的、每小时浏览 ≥ 5000」的帖子，找出它们共同的热词、话题和特点。你平时刷首页、搜索页、个人主页时会顺手收；也可以点「抓取一次」，插件开一个 X 搜索页自己往下翻着收。只读，不点赞、不回复、不关注。</p>
+  </header>
+
+  <section class="card">
+    <div class="bar">
+      <button type="button" class="primary" id="fetch">抓取一次</button>
+      <label class="f">看最近 <select id="range">
+        <option value="3">3 小时</option><option value="6" selected>6 小时</option><option value="12">12 小时</option><option value="24">24 小时</option><option value="72">3 天</option>
+      </select> 发的</label>
+      <label class="f">每小时浏览 ≥ <select id="min">
+        <option value="5000" selected>5000</option><option value="10000">1 万</option><option value="20000">2 万</option><option value="50000">5 万</option>
+      </select></label>
+      <label class="f">语言 <select id="lang"><option value="">全部</option><option value="zh" selected>中文</option><option value="en">英文</option><option value="ja">日文</option></select></label>
+    </div>
+    <p class="msg" id="msg" role="status"></p>
+    <details>
+      <summary>收集设置</summary>
+      <div class="set">
+        <label class="f">「抓取一次」的搜索条件 <input type="text" id="q" placeholder="lang:zh min_faves:20"></label>
+        <label class="f">只收发出 <input type="number" id="age" min="1" max="72" step="1"> 小时内的</label>
+        <label class="f">收集门槛：每小时浏览 ≥ <input type="number" id="hmin" min="500" step="500"></label>
+        <button type="button" id="clear">清空收集的帖子</button>
+      </div>
+      <p class="msg">搜索条件可以用 X 的搜索语法：lang:zh 只看中文，min_faves:20 至少 20 个赞，加关键词只看某个领域（比如「航空 OR 飞机 lang:zh」）。时间范围插件会自己加。</p>
+    </details>
+  </section>
+
+  <section class="card" id="sum-card">
+    <h2>这批热帖的共同点 <small id="sum-n"></small></h2>
+    <p class="sum" id="sum"></p>
+    <div class="grid" id="stats"></div>
+  </section>
+
+  <div class="two">
+    <section class="card"><h2>热词 <small>出现在几条热帖里</small></h2><div class="chips" id="words"></div></section>
+    <section class="card"><h2>热门词组 <small>两个词连在一起出现</small></h2><div class="chips" id="phrases"></div></section>
+  </div>
+  <div class="two">
+    <section class="card"><h2>话题标签</h2><div class="chips" id="tags"></div></section>
+    <section class="card"><h2>常被提到的账号 / 反复上榜的作者</h2><div class="chips" id="people"></div></section>
+  </div>
+
+  <section class="card">
+    <h2 id="list-title">热帖</h2>
+    <div class="list" id="list"></div>
+  </section>
+</main>
+<script src="hot.js"></script>
+</body>
+</html>

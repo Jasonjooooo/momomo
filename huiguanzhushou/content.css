@@ -1,0 +1,294 @@
+/* 回关助手：面板固定深色，X 的浅色、暗色、纯黑主题下都看得清 */
+#xfb-panel {
+  --xfb-bg: #15202b;
+  --xfb-line: #2f3d4a;
+  --xfb-ink: #eef2f5;
+  --xfb-mute: #8b98a5;
+  --xfb-red: #f4212e;
+  --xfb-amber: #ffad1f;
+  --xfb-green: #00ba7c;
+  --xfb-blue: #1d9bf0;
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 2147483000;
+  width: 248px;
+  background: var(--xfb-bg);
+  color: var(--xfb-ink);
+  border: 1px solid var(--xfb-line);
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+#xfb-panel[hidden] { display: none; }
+#xfb-panel button {
+  font: inherit;
+  color: var(--xfb-ink);
+  background: #22303c;
+  border: 1px solid var(--xfb-line);
+  border-radius: 999px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+#xfb-panel button:hover { border-color: var(--xfb-mute); }
+#xfb-panel button:focus-visible { outline: 2px solid var(--xfb-blue); outline-offset: 2px; }
+#xfb-panel button[aria-pressed="true"] { background: var(--xfb-ink); color: var(--xfb-bg); border-color: var(--xfb-ink); }
+
+.xfb-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px 8px; border-bottom: 1px solid var(--xfb-line); }
+.xfb-head b { font-size: 14px; }
+#xfb-panel .xfb-min { padding: 0 9px; line-height: 20px; }
+.xfb-collapsed .xfb-body { display: none; }
+.xfb-collapsed .xfb-head { border-bottom: 0; }
+
+.xfb-body { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px 12px; }
+.xfb-note { font-size: 12px; color: var(--xfb-mute); }
+.xfb-note.warn { color: var(--xfb-amber); }
+.xfb-note[hidden] { display: none; }
+
+.xfb-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; text-align: center; }
+.xfb-stats span { display: block; font-size: 17px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.xfb-stats small { color: var(--xfb-mute); font-size: 11px; }
+.xfb-stats .nf span { color: var(--xfb-red); }
+
+.xfb-today { font-size: 12px; color: var(--xfb-mute); }
+.xfb-today b { color: var(--xfb-ink); font-variant-numeric: tabular-nums; }
+.xfb-today.over, .xfb-today.over b { color: var(--xfb-amber); }
+
+.xfb-row { display: flex; gap: 6px; }
+.xfb-row button { flex: 1; }
+#xfb-panel .xfb-wide { width: 100%; }
+.xfb-tip { font-size: 11px; color: var(--xfb-mute); }
+#xfb-panel .xfb-autof { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px; background: rgba(29, 155, 240, 0.16); border: 1px solid rgba(29, 155, 240, 0.45); border-radius: 10px; padding: 6px 10px; }
+#xfb-panel .xfb-autof[hidden] { display: none; }
+#xfb-panel .xfb-autof button { font-size: 12px; padding: 3px 10px; flex: none; }
+
+/* ---------- 列表里的标记 ---------- */
+.xfb-cell.xfb-nf { box-shadow: inset 3px 0 0 #f4212e; }
+.xfb-cell.xfb-kept { box-shadow: inset 3px 0 0 #8b98a5; }
+.xfb-cell.xfb-wait { box-shadow: inset 3px 0 0 #ffad1f; }
+.xfb-cell.xfb-wait .xfb-tag { color: #b26b00; }
+.xfb-only-nf .xfb-cell.xfb-wait { opacity: 0.22; }
+.xfb-only-nf .xfb-cell.xfb-mutual { opacity: 0.22; }
+
+.xfb-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 2px 52px;
+  font: 12px/1.4 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+.xfb-tag {
+  color: #f4212e;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  padding: 0 6px;
+  font-weight: 600;
+}
+.xfb-kept .xfb-tag, .xfb-done .xfb-tag { color: #8b98a5; }
+.xfb-cell.xfb-done { box-shadow: inset 3px 0 0 #00ba7c; }
+.xfb-bar button {
+  font: inherit;
+  border-radius: 999px;
+  padding: 4px 12px;
+  cursor: pointer;
+  border: 1px solid #8b98a5;
+  background: transparent;
+  color: inherit;
+}
+.xfb-bar button[hidden] { display: none; }
+.xfb-bar button:disabled { opacity: 0.45; cursor: wait; }
+.xfb-bar button:focus-visible { outline: 2px solid #1d9bf0; outline-offset: 2px; }
+.xfb-bar .xfb-un { border-color: #f4212e; color: #f4212e; font-weight: 600; }
+.xfb-bar .xfb-un:hover:not(:disabled) { background: rgba(244, 33, 46, 0.1); }
+.xfb-bar .xfb-un.armed { border-color: #ffad1f; color: #ffad1f; }
+
+/* ---------- 2.0：多页面 ---------- */
+#xfb-panel .xfb-sec { display: none; flex-direction: column; gap: 10px; }
+#xfb-panel[data-mode="following"] .xfb-sec[data-sec="following"],
+#xfb-panel[data-mode="feed"] .xfb-sec[data-sec="feed"],
+#xfb-panel[data-mode="status"] .xfb-sec[data-sec="status"],
+#xfb-panel[data-mode="profile"] .xfb-sec[data-sec="profile"] { display: flex; }
+/* 打开池子时，只显示池子 */
+#xfb-panel[data-pool="1"][data-mode] .xfb-sec:not([data-sec="pool"]) { display: none; }
+#xfb-panel[data-pool="1"] .xfb-sec[data-sec="pool"] { display: flex; }
+/* 打开取关池时，只显示取关池 */
+#xfb-panel[data-pool="un"][data-mode] .xfb-sec:not([data-sec="unpool"]) { display: none; }
+#xfb-panel[data-pool="un"] .xfb-sec[data-sec="unpool"] { display: flex; }
+#xfb-panel button.xfb-unpoolbtn b { color: #f4212e; }
+#xfb-panel .xfb-head-btns button { white-space: nowrap; }
+#xfb-panel #xfb-unpool-list { max-height: 46vh; overflow-y: auto; }
+#xfb-panel button.xfb-unf { color: #f4212e; border-color: rgba(244, 33, 46, 0.5); }
+#xfb-panel button.xfb-unf:hover:not(:disabled) { background: rgba(244, 33, 46, 0.1); }
+#xfb-panel .xfb-head-btns { display: flex; align-items: center; gap: 6px; }
+#xfb-panel button.xfb-poolbtn { font-size: 12px; padding: 2px 10px; border-radius: 999px; }
+#xfb-panel button.xfb-poolbtn b { color: #00ba7c; }
+#xfb-panel button.xfb-poolbtn[aria-pressed="true"] { background: #1d9bf0; border-color: #1d9bf0; color: #fff; }
+#xfb-panel button.xfb-poolbtn[aria-pressed="true"] b { color: #fff; }
+#xfb-panel #xfb-pool-list { max-height: 46vh; overflow-y: auto; }
+#xfb-panel button.xfb-pool-x { padding: 2px 8px; font-size: 13px; }
+#xfb-panel { width: 268px; }
+.xfb-stats.two { grid-template-columns: repeat(2, 1fr); }
+
+#xfb-panel .xfb-field { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--xfb-mute); }
+#xfb-panel .xfb-field input, #xfb-panel .xfb-field select {
+  font: 13px/1.4 inherit; color: var(--xfb-ink); background: #0f1923;
+  border: 1px solid var(--xfb-line); border-radius: 8px; padding: 6px 8px;
+}
+#xfb-panel .xfb-field select:focus, #xfb-panel .xfb-field input:focus { outline: 2px solid var(--xfb-blue); outline-offset: -1px; }
+#xfb-panel a.xfb-btn {
+  box-sizing: border-box;
+  display: block; text-align: center; text-decoration: none; color: #fff;
+  background: var(--xfb-blue); border-radius: 999px; padding: 7px 10px; font-weight: 600;
+}
+#xfb-panel a.xfb-btn:hover { filter: brightness(1.08); }
+
+#xfb-panel .xfb-list {
+  max-height: 240px; overflow-y: auto; display: flex; flex-direction: column;
+  border: 1px solid var(--xfb-line); border-radius: 10px;
+}
+#xfb-panel .xfb-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 7px 9px; border-top: 1px solid var(--xfb-line);
+}
+#xfb-panel .xfb-item:first-child { border-top: 0; }
+#xfb-panel .xfb-who { display: flex; flex-direction: column; min-width: 0; }
+#xfb-panel .xfb-who b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#xfb-panel .xfb-who small { color: var(--xfb-mute); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#xfb-panel .xfb-empty { padding: 14px 10px; color: var(--xfb-mute); font-size: 12px; text-align: center; }
+#xfb-panel .xfb-item-btns { display: flex; gap: 5px; flex: none; align-items: center; }
+#xfb-panel .xfb-item-btns > * { line-height: 1.4; padding-top: 3px; padding-bottom: 3px; }
+
+/* 打开主页 / 打开帖子 链接 */
+.xfb-open {
+  display: inline-block; font: 600 12px/1.4 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #1d9bf0 !important; text-decoration: none !important;
+  border: 1px solid #1d9bf0; border-radius: 999px; padding: 3px 11px;
+}
+.xfb-open:hover { background: rgba(29, 155, 240, 0.1); }
+.xfb-open[hidden] { display: none; }
+
+.xfb-art { position: relative; }
+.xfb-corner {
+  position: absolute; top: 12px; right: 64px; z-index: 2;
+  display: flex; align-items: center; gap: 4px; pointer-events: none;
+  font: 600 11px/16px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+.xfb-corner > * { border-radius: 999px; padding: 0 6px; white-space: nowrap; }
+.xfb-corner [hidden] { display: none; }
+.xfb-ctag { color: #fff; background: #1d9bf0; }
+.xfb-ctag.low { background: #8b98a5; }
+.xfb-copen {
+  pointer-events: auto; color: #1d9bf0 !important; text-decoration: none !important;
+  background: rgba(255, 255, 255, 0.92); box-shadow: inset 0 0 0 1px #1d9bf0;
+}
+.xfb-copen:hover { background: #e8f5fe; }
+.xfb-heat { color: #fff; background: #5c6b78; }
+.xfb-heat[hidden] { display: none; }
+.xfb-heat[data-tier="1"] { background: #5c6b78; }               /* <500 灰 */
+.xfb-heat[data-tier="2"] { background: #f0b400; color: #1a1300; } /* 500–1999 黄 */
+.xfb-heat[data-tier="3"] { background: #f5731b; }               /* 2000–9999 橙 */
+.xfb-heat[data-tier="4"] { background: #e0245e; }               /* ≥1万 红 */
+
+/* 一键关注按钮 */
+.xfb-follow, .xfb-bar button.xfb-follow, #xfb-panel button.xfb-follow {
+  display: inline-block; cursor: pointer;
+  font: 600 12px/1.4 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #fff; background: #1d9bf0; border: 1px solid #1d9bf0; border-radius: 999px; padding: 3px 13px;
+}
+.xfb-follow:hover:not(:disabled), .xfb-bar button.xfb-follow:hover:not(:disabled), #xfb-panel button.xfb-follow:hover:not(:disabled) { filter: brightness(1.08); }
+.xfb-follow:disabled { opacity: 0.6; cursor: wait; }
+.xfb-follow:focus-visible { outline: 2px solid #1d9bf0; outline-offset: 2px; }
+
+/* 帖子上的标记 */
+.xfb-art.xfb-hit { box-shadow: inset 3px 0 0 #1d9bf0; }
+.xfb-fade-others .xfb-art:not(.xfb-hit) { opacity: 0.25; }
+.xfb-art.xfb-todo { box-shadow: inset 3px 0 0 #f4212e; }
+.xfb-art > .xfb-bar { margin: 0 16px 10px 72px; }
+.xfb-tag.xfb-tag-hit { color: #1d9bf0; }
+.xfb-tag.xfb-tag-low { color: #8b98a5; }
+
+/* 已回 / 抢前排 */
+.xfb-cdone { color: #fff; background: #00ba7c; }
+.xfb-grab { color: #fff; background: #7856ff; animation: xfb-pulse 1.6s ease-in-out infinite; }
+@keyframes xfb-pulse { 50% { box-shadow: 0 0 0 3px rgba(120, 86, 255, 0.35); } }
+@media (prefers-reduced-motion: reduce) { .xfb-grab { animation: none; } }
+.xfb-reply-line.done b { color: #00ba7c; }
+
+/* 账号质量 */
+.xfb-q { font-size: 11px; color: #8b98a5; white-space: nowrap; }
+.xfb-q[hidden] { display: none; }
+.xfb-q.good { color: #00ba7c; }
+.xfb-q.big, .xfb-q.low { color: #b26b00; }
+#xfb-panel .xfb-who small.xfb-q { font-size: 10.5px; }
+#xfb-panel .xfb-who small.xfb-q.good { color: #00ba7c; }
+#xfb-panel .xfb-who small.xfb-q.big, #xfb-panel .xfb-who small.xfb-q.low { color: #ffad1f; }
+
+/* 已处理的互关帖：变灰 */
+.xfb-chandled { color: #fff; background: #8b98a5; }
+.xfb-art.xfb-handled > *:not(.xfb-corner) { opacity: 0.45; }
+
+/* 跳到的那个未回关 */
+.xfb-cell.xfb-focus { outline: 2px solid #f4212e; outline-offset: -2px; background: rgba(244, 33, 46, 0.06); }
+#xfb-panel button.xfb-primary-btn { background: #1d9bf0; border-color: #1d9bf0; color: #fff; font-weight: 700; }
+
+/* 交给 X 定时的提示条 */
+#xfb-xjob {
+  position: fixed; left: 50%; top: 12px; transform: translateX(-50%); z-index: 2147483647;
+  max-width: min(560px, calc(100vw - 32px)); padding: 10px 16px; border-radius: 12px;
+  font: 600 13.5px/1.5 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #fff; background: #15202b; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+}
+#xfb-xjob.ok { background: #00875a; }
+#xfb-xjob.warn { background: #b26b00; }
+.xfb-xjob-btn { outline: 3px solid #00ba7c !important; outline-offset: 3px; }
+
+/* 找互关帖提醒条 */
+#xfb-remind-bar {
+  position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 2147483646;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: center;
+  max-width: calc(100vw - 32px); padding: 8px 10px 8px 16px; border-radius: 999px;
+  font: 600 14px/1.4 -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #fff; background: #1d9bf0; box-shadow: 0 8px 26px rgba(0, 0, 0, 0.3);
+  animation: xfb-drop 0.25s ease-out;
+}
+@keyframes xfb-drop { from { transform: translate(-50%, -16px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { #xfb-remind-bar { animation: none; } }
+#xfb-remind-bar button {
+  font: inherit; font-size: 13px; cursor: pointer; border-radius: 999px; padding: 4px 12px;
+  color: #fff; background: rgba(255, 255, 255, 0.16); border: 1px solid rgba(255, 255, 255, 0.5);
+}
+#xfb-remind-bar button.go { background: #fff; color: #0f6fb0; border-color: #fff; }
+#xfb-remind-bar button.x { padding: 4px 9px; background: transparent; border-color: transparent; font-size: 16px; }
+#xfb-remind-bar button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+/* 这一轮的进度 */
+#xfb-panel .xfb-round { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12.5px;
+  padding: 6px 8px; border-radius: 8px; background: rgba(29, 155, 240, 0.12); color: #cfe8fb; }
+#xfb-panel .xfb-round[hidden] { display: none; }
+#xfb-panel .xfb-round:not(.working) { background: rgba(139, 152, 165, 0.14); color: #c4cdd5; }
+#xfb-panel .xfb-round button[hidden] { display: none; }
+#xfb-panel .xfb-round b { color: #fff; }
+#xfb-panel .xfb-round button { font-size: 12px; padding: 3px 10px; }
+
+/* 折叠块 */
+#xfb-panel .xfb-body { max-height: calc(100vh - 90px); overflow-y: auto; overscroll-behavior: contain; }
+#xfb-panel details.xfb-fold { border: 1px solid var(--xfb-line); border-radius: 10px; }
+#xfb-panel details.xfb-fold > summary {
+  list-style: none; cursor: pointer; display: flex; align-items: center; justify-content: space-between;
+  padding: 7px 10px; font-size: 12.5px; font-weight: 600; color: var(--xfb-mute); user-select: none;
+}
+#xfb-panel details.xfb-fold > summary::-webkit-details-marker { display: none; }
+#xfb-panel details.xfb-fold > summary::after { content: "展开 ▾"; font-weight: 500; font-size: 11.5px; }
+#xfb-panel details.xfb-fold[open] > summary::after { content: "收起 ▴"; }
+#xfb-panel details.xfb-fold > summary:hover { color: var(--xfb-ink); }
+#xfb-panel details.xfb-fold > summary:focus-visible { outline: 2px solid var(--xfb-blue); outline-offset: 1px; border-radius: 10px; }
+#xfb-panel .xfb-fold-body { display: flex; flex-direction: column; gap: 10px; padding: 2px 10px 10px; }
+
+/* 屏蔽词：帖子折叠成一行 */
+article.xfb-blocked { display: none !important; }
+.xfb-blockbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 16px;
+  font-size: 13px; color: #536471; border-bottom: 1px solid rgba(83, 100, 113, 0.25); }
+.xfb-blockbar button { font: inherit; font-size: 12.5px; color: #1d9bf0; background: transparent; border: 1px solid rgba(29, 155, 240, 0.5);
+  border-radius: 999px; padding: 2px 12px; cursor: pointer; }
+.xfb-blockbar button:hover { background: rgba(29, 155, 240, 0.1); }

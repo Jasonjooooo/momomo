@@ -4,7 +4,8 @@
  *    「X 自动回复流程」：运行状态、日志、今天回复了几条
  * 2. 页面上的操作转交给它们去做（打开排期表、交给 X 定时、开始/暂停/停止自动回复……）
  * 3. 每一步到点弹提醒；设了「到点自动开始」的步骤，到点自己做（开始自动回复、叫 TG二创 开始、打开互关池……）
- * 4. 每分钟问一次 TG二创（本机 127.0.0.1:38719）在不在、在做什么 */
+ * 4. 每分钟问一次 TG二创（本机 127.0.0.1:38719）在不在、在做什么
+ * 5. TG二创「发帖」页排好的视频：分段读出来，转给回关助手放进发帖排期表 */
 "use strict";
 importScripts("steps.js");
 
@@ -119,12 +120,58 @@ async function toTg(msg) {
   }
 }
 
+/* ---------- TG二创 发帖队列 → 回关助手 发帖排期表 ---------- */
+const PIECE = 4 * 1024 * 1024;        // 每段 4MB（转成文字约 5.3MB，插件之间一条消息放得下）
+let pumping = false;
+async function hgCall(msg) {
+  const { hgId } = await chrome.storage.local.get(["hgId"]);
+  if (!hgId) return { ok: false, reason: "还没连上回关助手" };
+  try { return (await chrome.runtime.sendMessage(hgId, msg)) || { ok: false, reason: "回关助手没回应" }; }
+  catch (e) { return { ok: false, reason: "回关助手没有响应（要更新到带发帖功能的 workflow-bridge.js）" }; }
+}
+function toB64(buf) {
+  const u = new Uint8Array(buf);
+  let bin = "";
+  for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+async function postPump() {
+  if (pumping) return;
+  pumping = true;
+  try {
+    const q = await tgFetch("/postq").catch(() => null);
+    if (!q || !q.ok || !q.jobs || !q.jobs.length) return;
+    const { hgId } = await chrome.storage.local.get(["hgId"]);
+    if (!hgId) return;                                     // 回关助手还没连上：先放着，连上了再送
+    for (const j of q.jobs) {
+      let r = await hgCall({ app: "时间工作流", type: "wf-post-begin", qid: j.qid, name: j.name, mime: j.type, size: j.size, text: j.text, day: j.day, hm: j.hm });
+      for (let off = 0; r.ok && off < j.size; off += PIECE) {
+        const res = await fetch(`${TG_URL}/file?q=${encodeURIComponent(j.qid)}&off=${off}&len=${PIECE}`);
+        if (!res.ok) { r = { ok: false, reason: "从 TG二创 读视频失败" }; break; }
+        r = await hgCall({ app: "时间工作流", type: "wf-post-chunk", qid: j.qid, off, data: toB64(await res.arrayBuffer()) });
+      }
+      if (r.ok) r = await hgCall({ app: "时间工作流", type: "wf-post-end", qid: j.qid });
+      else hgCall({ app: "时间工作流", type: "wf-post-abort", qid: j.qid });
+      await tgFetch("/postq/done", { qid: j.qid, ok: !!r.ok, day: r.day || "", hm: r.hm || "", error: r.ok ? "" : (r.reason || "没放进去") }).catch(() => {});
+      if (r.ok) {
+        const { wfPosted } = await chrome.storage.local.get(["wfPosted"]);
+        const log = (wfPosted || []).concat([{ at: Date.now(), day: r.day, hm: r.hm, name: j.name, moved: r.day !== j.day || r.hm !== j.hm }]).slice(-50);
+        await chrome.storage.local.set({ wfPosted: log });
+      }
+    }
+    if (q.jobs.length) chrome.notifications.create("wf|post|" + Date.now(), {
+      type: "basic", iconUrl: "icons/icon128.png", priority: 1,
+      title: `TG二创 的 ${q.jobs.length} 条视频放进发帖排期表了`, message: "打开回关助手的发帖排期表看看，没问题就交给 X 定时。点这里打开时间工作流",
+    });
+  } finally { pumping = false; }
+}
+
 chrome.runtime.onMessage.addListener((msg, _s, send) => {
   if (msg && msg.type === "hg") { toHg(msg.msg).then(send); return true; }
   if (msg && msg.type === "xrf") { toXrf(msg.msg).then(send); return true; }
   if (msg && msg.type === "tg") { toTg(msg.msg).then(send); return true; }
   if (msg && msg.type === "run-step") { runStepNow(msg.id, msg.m).then(send); return true; }
-  if (msg && msg.type === "pull") { Promise.all([toHg({ type: "wf-pull" }), toXrf({ type: "xrf-pull" }), tgPoll()]).then(() => send({ ok: true })); return true; }
+  if (msg && msg.type === "pull") { Promise.all([toHg({ type: "wf-pull" }), toXrf({ type: "xrf-pull" }), tgPoll().then((ok) => ok && postPump())]).then(() => send({ ok: true })); return true; }
   return false;
 });
 
@@ -239,7 +286,7 @@ function dueNow(steps, schedule, now) {
 
 chrome.alarms.onAlarm.addListener(async (a) => {
   if (a.name !== TICK) return;
-  tgPoll();
+  tgPoll().then((ok) => { if (ok) postPump(); });
   await autoTick(new Date());
   const v = await chrome.storage.local.get(["wfSteps", "wfTimes", "wfV14", "wfFollowMigrated", "wfFollow", "wfNotify", "snap", "wfNotified", "wfRuns"]);
   const steps = loadSteps(v);
@@ -263,4 +310,4 @@ chrome.notifications.onClicked.addListener((id) => {
   openPage();
 });
 
-globalThis.__wf = { dueNow, openPage, onXrf, autoDue, autoTick, runAction, tgPoll, toTg };
+globalThis.__wf = { dueNow, openPage, onXrf, autoDue, autoTick, runAction, tgPoll, toTg, postPump };

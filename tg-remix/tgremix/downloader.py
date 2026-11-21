@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 from .config import folder, resolve
+from . import picker
 from .runtime import Cancelled, UserError, check_stop, log, progress
 from .state import State
 
@@ -165,6 +166,10 @@ async def download_with_client(client, cfg: dict, state: State) -> int:
 
     # ---------- 第 1 步：列出要下载的内容（视频 / 图片 / 文字） ----------
     todo = []
+    videos = []           # 选片：视频先打分，最后只下载分最高的
+    seen_dup: dict = {}   # 同一个视频在几个群出现
+    prules = picker.pick_rules(cfg)
+    pick_on = prules.get("on") is not False
     dialogs_loaded = False
     for ch in cfg["channels"]:
         check_stop()
@@ -199,6 +204,7 @@ async def download_with_client(client, cfg: dict, state: State) -> int:
 
         msgs = [m async for m in client.iter_messages(entity, limit=limit)]
         group_text = {m.grouped_id: m.message for m in msgs if m.grouped_id and m.message}
+        baseline = picker.channel_baseline(msgs) if pick_on else None
         base = dl_root / (_safe_name(username) if username else f"{_safe_name(title)}_{entity.id}")
         cnt = {"video": 0, "photo": 0, "text": 0, "skip": 0}
         for m in reversed(msgs):  # 从旧到新
@@ -216,6 +222,13 @@ async def download_with_client(client, cfg: dict, state: State) -> int:
             if kind == "text":
                 _append_text(base / "文字.csv", m, text, link, tags)
                 state.mark_downloaded(key, m.id)
+            elif kind == "video" and pick_on:
+                sub = base / KIND_DIRS["video"]
+                dk = picker.dup_key(m)
+                if dk:
+                    seen_dup.setdefault(dk, set()).add(key)
+                videos.append({"m": m, "key": key, "title": title, "dir": sub, "text": text, "link": link,
+                               "kind": kind, "tags": tags, "_baseline": baseline, "_dk": dk})
             else:
                 sub = base / KIND_DIRS.get(kind, "其他")
                 sub.mkdir(parents=True, exist_ok=True)
@@ -226,6 +239,38 @@ async def download_with_client(client, cfg: dict, state: State) -> int:
                  f"{cnt['text']} 条文字" if "text" in types else ""]
         log(f"📺 {title}" + (f"【{'、'.join(tags)}】" if tags else "") + "：新的 " + "、".join(x for x in parts if x)
             + (f"，跳过 {cnt['skip']} 条" if cnt["skip"] else ""))
+    # ---------- 选片：打分，不合格的不下载，只下载分最高的几条 ----------
+    if videos:
+        used_dk = set()
+        good, weak, out = [], 0, 0
+        for v in videos:
+            dn = len(seen_dup.get(v["_dk"], ())) if v["_dk"] else 1
+            p = picker.score_tg(v["m"], v["text"], v.pop("_baseline"), dn, prules)
+            v["pick"] = p
+            if p["out"]:
+                out += 1
+                state.mark_downloaded(v["key"], v["m"].id)        # 不合格的以后也不要
+                log(f"  ⏭ {v['title']} #{v['m'].id} 不要：{'；'.join(r[1].lstrip('✗ ') for r in p['reasons'] if r[0] == 'b')}")
+            elif p["weak"]:
+                weak += 1                                          # 不够火：先不下，以后火了还有机会
+            else:
+                good.append(v)
+        good.sort(key=lambda v: -v["pick"]["score"])
+        chosen = []
+        for v in good:
+            dk = v.pop("_dk")
+            if dk and dk in used_dk:                               # 好几个群都在发的，只下载一份
+                state.mark_downloaded(v["key"], v["m"].id)
+                continue
+            if dk:
+                used_dk.add(dk)
+            if len(chosen) < prules["max_downloads"]:
+                chosen.append(v)
+        for v in chosen:
+            v["dir"].mkdir(parents=True, exist_ok=True)
+        todo.extend(chosen)
+        log(f"🎯 选片：新视频 {len(videos)} 条，不合格 {out} 条，不够火 {weak} 条（比群里平时火不到 {prules['min_ratio']:g} 倍，先不下）；"
+            f"下载分最高的 {len(chosen)} 条" + (f"（最多 {prules['max_downloads']} 条，其余的下次再看）" if len(good) > len(chosen) else ""))
     state.save()
     if not todo:
         log("没有需要下载的新视频 / 图片")
@@ -305,6 +350,8 @@ async def download_todo(client, cfg: dict, state: State, todo: list) -> int:
             meta = {"channel": t["key"], "channel_title": t["title"], "id": m.id,
                     "date": m.date.isoformat() if m.date else "", "text": t["text"], "link": t["link"],
                     "file": final.name, "kind": t["kind"], "tags": t["tags"]}
+            if t.get("pick"):
+                meta["pick"] = t["pick"]
             final.with_suffix(".json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
             t["final"] = str(final)
             state.mark_downloaded(t["key"], m.id)
