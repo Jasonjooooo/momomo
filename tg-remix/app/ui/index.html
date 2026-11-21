@@ -286,16 +286,24 @@ td.del button:hover { background: var(--input); color: var(--err); }
 <!-- ======================= 发帖 ======================= -->
 <section class="page" id="page-post">
   <h2>发帖</h2>
-  <p class="sub">做好的成品按推荐分从高到低排好。勾上要发的，改好文案，放进回关助手的发帖排期表。</p>
+  <p class="sub">每次「下载并处理」完，会自动挑出推荐分最高的几条（默认 40 条），用 AI 写好文案，在这里等你。看一眼，没问题就点「铺进排期表」。</p>
 
   <div class="card">
     <div class="pbar">
-      <button class="btn pri" id="pAuto">⭐ 自动挑最好的</button>
-      <input type="number" id="pAutoN" min="1" max="30" value="3" style="width:64px"> 条
+      <b id="pReadyTxt">准备好的</b>
+      <span class="sp"></span>
+      <label>从 <select id="pDay"></select> 开始铺</label>
+      <button class="btn pri big" id="pGo" disabled>铺进排期表</button>
+    </div>
+    <div class="row" style="margin:8px 0 0"><span class="help" id="pPlanTxt"></span></div>
+    <div class="row" style="margin:6px 0 0"><span class="msg" id="pMsg" style="margin:0"></span></div>
+    <div class="pbar" style="margin-top:8px">
+      <button class="btn" id="pPrepare">重新准备</button>
+      <button class="btn" id="pAuto">只选准备好的</button>
+      <button class="btn" id="pClear">全部不选</button>
       <label>标签 <select id="pTag"><option value="">全部</option></select></label>
       <label><input type="checkbox" id="pShowDone"> 显示已排期的</label>
-      <span class="sp"></span>
-      <span class="help" id="pCount"></span>
+      <span class="sp"></span><span class="help" id="pCount"></span>
       <button class="btn" id="pReload">刷新</button>
     </div>
   </div>
@@ -303,27 +311,35 @@ td.del button:hover { background: var(--input); color: var(--err); }
   <div id="pEmpty" class="pempty hidden">还没有成品。先在「运行」页「下载并处理」，做好的视频会出现在这里。</div>
 
   <div class="card">
-    <h3>排进发帖排期表 <span class="hint">TG二创 → 时间工作流 → 回关助手，都在你电脑上传，不经过任何服务器</span></h3>
-    <div class="row"><label>从哪天开始</label><select id="pDay"></select></div>
-    <div class="row"><label>每天几点发</label><input type="text" id="pTimes" placeholder="12:00, 18:30, 21:30" style="max-width:320px">
-      <span class="help">用逗号隔开；几个时间就是每天发几条</span></div>
-    <div class="row"><label></label><span class="help">排期表里那个时间已经有内容的，自动往后挪到下一个空格子</span></div>
-    <div class="pprev" id="pPrev"></div>
-    <div class="row" style="margin-bottom:0"><button class="btn pri" id="pGo" disabled>放进发帖排期表</button><button class="btn" id="pClear">清空选择</button>
-      <span class="msg" id="pMsg" style="margin:0"></span></div>
+    <h3>AI 写文案 <span class="hint">本机看图模型看画面（画面不出你的电脑）→ DeepSeek 按 吐槽 / 猎奇 / 搞笑 / 震撼人心 / 警示教育 / 工业工具 的口吻写一句</span></h3>
+    <div class="row"><label>本机看图模型</label><input type="text" data-path="caption.ollama_model" placeholder="qwen2.5vl:7b" style="max-width:220px">
+      <button class="btn" id="pAiCheck">检查</button><span class="help" id="pAiMsg"></span></div>
+    <div class="row"><label>DeepSeek Key</label><input type="password" data-path="caption.api_key" placeholder="空着就用「效果」页 AI 解说里填的 key" autocomplete="off"></div>
+    <div class="row"><label>DeepSeek 模型</label><input type="text" data-path="caption.model" placeholder="deepseek-chat" style="max-width:220px">
+      <span class="help">空着就用 AI 解说里填的</span></div>
+    <div class="row"><label>开着</label><label style="width:auto;color:var(--fg)"><input type="checkbox" data-path="caption.on"> 准备时自动写文案（关掉就用原帖文字）</label></div>
+    <details><summary class="help" style="cursor:pointer">怎么装本机看图模型（一次就好）</summary>
+      <ol class="help" style="margin:6px 0 0;padding-left:20px;line-height:1.9">
+        <li>打开 <a data-url="https://ollama.com/download">ollama.com/download</a> 下载 Ollama（Mac 版），装好后打开它（菜单栏会出现一只羊驼）</li>
+        <li>打开「终端」，粘贴这一行回车，等它下载完（约 6GB）：<b style="-webkit-user-select:text;user-select:text">ollama pull qwen2.5vl:7b</b></li>
+        <li>回来点上面的「检查」，显示「可以用」就好了。以后 Ollama 开着就行</li>
+      </ol></details>
   </div>
 
   <div class="card">
     <h3>选片规则 <span class="hint">TG 的视频下载前就按这个打分，不合格的不下载、不处理</span></h3>
     <div class="grid2">
+      <div class="row"><label>每天准备</label><input type="number" min="1" max="100" data-path="pick.daily"> 条</div>
+      <div class="row"><label>每次最多下载</label><input type="number" min="1" max="300" data-path="pick.max_downloads"> 条（分最高的）</div>
       <div class="row"><label>比群里平时火</label><input type="number" step="0.5" min="0" data-path="pick.min_ratio"> 倍以上才要</div>
-      <div class="row"><label>每次最多下载</label><input type="number" min="1" max="100" data-path="pick.max_downloads"> 条（分最高的）</div>
       <div class="row"><label>时长</label><input type="number" min="0" data-path="pick.min_sec" style="width:70px"> 到 <input type="number" min="1" data-path="pick.max_sec" style="width:70px"> 秒</div>
       <div class="row"><label>清晰度至少</label><select data-path="pick.min_short" data-num><option value="0">不限</option><option value="480">480p</option><option value="720">720p</option><option value="1080">1080p</option></select></div>
+      <div class="row"><label>发帖时段</label><input type="text" data-path="pick.slot_start" style="width:70px"> 到 <input type="text" data-path="pick.slot_end" style="width:70px">，每 <input type="number" min="5" data-path="pick.slot_step" style="width:60px"> 分钟一格</div>
     </div>
-    <div class="row"><label>有这些词不要</label><input type="text" id="pBad" placeholder="用逗号隔开"></div>
-    <div class="row"><label>开着</label><label style="width:auto;color:var(--fg)"><input type="checkbox" data-path="pick.on"> 下载前打分（关掉就和以前一样，新视频全下载）</label></div>
-    <p class="help" style="margin:6px 0 0">TG 频道看「比这个群平时火几倍」；普通群组看不到浏览量，就看转发、表情回应、几个群都在发。同一个视频（画面一样）只处理一次，发过的永远不再发。</p>
+    <div class="row"><label>有这些词不要</label><input type="text" id="pBad" placeholder="用逗号隔开（色情词另外一直在挡）"></div>
+    <div class="row"><label>裸露检查</label><label style="width:auto;color:var(--fg)"><input type="checkbox" data-path="pick.nsfw"> 本机看画面，露胸 / 臀 / 下体的不要（隐晦擦边可以过）</label></div>
+    <div class="row"><label>交给 X 定时</label><label style="width:auto;color:var(--fg)"><input type="checkbox" data-path="pick.to_x"> 铺进排期表以后，回关助手自动交给 X 定时（要开着 Chrome）</label></div>
+    <div class="row"><label>下载前打分</label><label style="width:auto;color:var(--fg)"><input type="checkbox" data-path="pick.on"> 开着（关掉就和以前一样，新视频全下载）</label></div>
   </div>
 
   <div class="card">
@@ -1322,18 +1338,18 @@ document.addEventListener("keydown", (e) => {
 
 
 // ---------- 发帖 ----------
-let pItems = [], pSel = new Set(), pCapTimer = {};
+let pItems = [], pSel = new Set(), pCapTimer = {}, pInit = false;
 const xLen = (t) => [...String(t || "")].reduce((n, c) => n + (/[ᄀ-￿\u{1F000}-\u{1FFFF}]/u.test(c) ? 2 : 1), 0);
 const pShow = (it) => ($("#pShowDone").checked || !it.post || it.post.status === "failed") && (!$("#pTag").value || (it.tags || []).includes($("#pTag").value) || (it.channel === $("#pTag").value));
+const pRule = (k, d) => (cfg.pick && cfg.pick[k] != null && cfg.pick[k] !== "" ? cfg.pick[k] : d);
 function pDays() {
   const sel = $("#pDay"); if (sel.options.length) return;
-  for (let i = 0; i < 7; i++) {
+  for (let i = 0; i < 4; i++) {
     const d = new Date(Date.now() + i * 864e5), k = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     sel.append(new Option((i === 0 ? "今天 " : i === 1 ? "明天 " : "周" + "日一二三四五六"[d.getDay()] + " ") + `${d.getMonth() + 1}/${d.getDate()}`, k));
   }
-  sel.value = sel.options[1].value;
+  sel.value = sel.options[new Date().getHours() < 8 ? 0 : 1].value;
 }
-const pTimes = () => [...new Set(($("#pTimes").value || "").split(/[,，\s]+/).map((t) => t.trim()).filter((t) => /^\d{1,2}:\d{2}$/.test(t)).map((t) => t.padStart(5, "0")))].sort();
 async function loadPosts() {
   pDays();
   $("#pCount").textContent = "读取中…";
@@ -1342,15 +1358,19 @@ async function loadPosts() {
   pItems = r.items;
   const tags = [...new Set(pItems.flatMap((x) => [...(x.tags || []), x.channel]).filter(Boolean))];
   const ts = $("#pTag"), cur = ts.value; ts.length = 1; tags.forEach((t) => ts.append(new Option(t, t))); ts.value = tags.includes(cur) ? cur : "";
-  for (const id of [...pSel]) { const it = pItems.find((x) => x.id === id); if (!it || it.out || it.post) pSel.delete(id); }
-  renderPosts();
+  if (!pInit) { pInit = true; pSel = new Set(pItems.filter((x) => x.ready && !x.out && !x.post).map((x) => x.id)); }
+  for (const id of [...pSel]) { const it = pItems.find((x) => x.id === id); if (!it || it.out || (it.post && it.post.status !== "failed")) pSel.delete(id); }
+  pItems.sort((a, b) => (b.ready && !b.post) - (a.ready && !a.post) || a.out - b.out || b.score - a.score);
+  renderPosts(); renderPlan();
 }
 function renderPosts() {
   const g = $("#pGrid"); g.textContent = "";
   const list = pItems.filter(pShow);
   $("#pEmpty").classList.toggle("hidden", pItems.length > 0);
-  const good = pItems.filter((x) => !x.out && !x.post).length, waiting = pItems.filter((x) => x.post && x.post.status === "waiting").length;
-  $("#pCount").textContent = `成品 ${pItems.length} 条 · 可以发 ${good} · 不推荐 ${pItems.filter((x) => x.out).length}` + (waiting ? ` · 正在放进排期表 ${waiting}` : "") + ` · 已选 ${pSel.size}`;
+  const ready = pItems.filter((x) => x.ready && !x.post).length, waiting = pItems.filter((x) => x.post && x.post.status === "waiting").length;
+  const aiN = pItems.filter((x) => x.ready && !x.post && x.ai).length;
+  $("#pReadyTxt").textContent = ready ? `准备好的 ${ready} 条` + (aiN ? `（${aiN} 条 AI 写好了文案）` : "（文案用的原帖文字）") : "还没有准备好的（下载并处理完会自动准备，或点「重新准备」）";
+  $("#pCount").textContent = `成品 ${pItems.length} 条 · 不推荐 ${pItems.filter((x) => x.out).length}` + (waiting ? ` · 正在放进排期表 ${waiting}` : "") + ` · 已选 ${pSel.size}`;
   for (const it of list) {
     const card = document.createElement("div");
     card.className = "pv" + (pSel.has(it.id) ? " sel" : "") + (it.out ? " out" : "") + (it.post && it.post.status !== "failed" ? " posted" : "");
@@ -1366,22 +1386,34 @@ function renderPosts() {
     });
     const vb = document.createElement("div"); vb.className = "vb";
     const meta = document.createElement("div"); meta.className = "meta";
-    (it.tags || []).forEach((t) => { const s = document.createElement("span"); s.className = "tg"; s.textContent = t; meta.append(s); });
+    if (it.ai && it.ai.kind) meta.append(Object.assign(document.createElement("span"), { className: "tg", textContent: it.ai.kind }));
+    (it.tags || []).forEach((t) => meta.append(Object.assign(document.createElement("span"), { className: "tg", textContent: t })));
     meta.append(Object.assign(document.createElement("span"), { textContent: it.channel || "" }), Object.assign(document.createElement("span"), { textContent: it.date }));
     const why = document.createElement("div"); why.className = "why";
     (it.reasons || []).forEach(([k, t]) => why.append(Object.assign(document.createElement("span"), { className: k, textContent: t })));
     const ta = document.createElement("textarea"); ta.value = it.caption || ""; ta.placeholder = "写一句文案（可以空着只发视频）";
     const cnt = document.createElement("div"); cnt.className = "cnt";
-    const upd = () => { const n = xLen(ta.value); cnt.textContent = `${n} / 280`; cnt.classList.toggle("over", n > 280); };
+    const upd = () => { const n = xLen(ta.value); cnt.textContent = (it.ai && it.ai.how ? it.ai.how + " · " : "") + `${n} / 280`; cnt.classList.toggle("over", n > 280); };
     upd();
     ta.addEventListener("input", () => {
       it.caption = ta.value; upd(); renderPlan();
       clearTimeout(pCapTimer[it.id]); pCapTimer[it.id] = setTimeout(() => api.post_caption(it.id, ta.value), 600);
     });
     vb.append(meta, why, ta, cnt);
+    if (!it.out && !it.post) {
+      const rb = document.createElement("button"); rb.className = "btn"; rb.textContent = "✨ 换个文案"; rb.style.alignSelf = "flex-start";
+      rb.addEventListener("click", async () => {
+        rb.disabled = true; rb.textContent = "AI 在写…";
+        const r = await api.post_recaption(it.id);
+        rb.disabled = false; rb.textContent = "✨ 换个文案";
+        if (!r.ok) return toast("文案没写成：" + r.error);
+        it.caption = r.caption; it.ai = { kind: r.kind, how: r.how, desc: r.desc }; ta.value = r.caption; upd(); renderPlan();
+        meta.firstChild && meta.firstChild.className === "tg" && it.ai.kind && (meta.firstChild.textContent = it.ai.kind);
+      });
+      vb.append(rb);
+    }
     if (it.post) {
-      const ps = document.createElement("div");
-      const st = it.post.status;
+      const ps = document.createElement("div"); const st = it.post.status;
       ps.className = "ps " + (st === "done" ? "ok" : st === "failed" ? "bad" : "wait");
       ps.textContent = st === "done" ? `✓ 已放进排期表 ${it.post.day.slice(5).replace("-", "/")} ${it.post.hm}` : st === "failed" ? `⚠ 没放进去：${it.post.error || ""}（可以重新选）`
         : `⏳ 等时间工作流来取（排 ${it.post.day.slice(5).replace("-", "/")} ${it.post.hm}）`;
@@ -1394,32 +1426,35 @@ function renderPosts() {
 }
 function pChosen() { return pItems.filter((x) => pSel.has(x.id)).sort((a, b) => b.score - a.score); }
 function renderPlan() {
-  const box = $("#pPrev"); box.textContent = "";
-  const times = pTimes(), list = pChosen(), day0 = new Date($("#pDay").value + "T00:00:00");
-  list.forEach((it, i) => {
-    const d = new Date(day0.getTime() + Math.floor(i / Math.max(1, times.length)) * 864e5);
-    box.append(Object.assign(document.createElement("b"), { textContent: times.length ? `${d.getMonth() + 1}/${d.getDate()} ${times[i % times.length]}` : "—" }),
-      Object.assign(document.createElement("span"), { textContent: (it.caption || "（只有视频）").replace(/\s+/g, " ") }));
-  });
-  box.classList.toggle("hidden", !list.length);
+  const list = pChosen();
+  const start = pRule("slot_start", "09:00"), end = pRule("slot_end", "24:00"), step = Number(pRule("slot_step", 20)) || 20;
+  const toM = (t) => Number(String(t).split(":")[0]) * 60 + Number(String(t).split(":")[1] || 0);
+  const slots = Math.max(0, Math.floor((toM(end) - toM(start)) / step));
+  $("#pPlanTxt").textContent = `${start}–${end} 每 ${step} 分钟一格，一天 ${slots} 格，随机空出几格；那个时间排期表里已经有内容的，往后挪到下一个空格子。`
+    + (pRule("to_x", true) ? "放进去以后自动交给 X 定时。" : "放进去以后要你在排期表里点「交给 X 定时」。")
+    + (list.length > slots ? ` 选了 ${list.length} 条，一天放不下，多的排到第二天。` : "");
   const over = list.some((x) => xLen(x.caption) > 280);
-  $("#pGo").disabled = !list.length || !times.length || over;
-  $("#pGo").textContent = list.length ? `放进发帖排期表（${list.length} 条）` : "放进发帖排期表";
-  $("#pMsg").className = "msg" + (over ? " err" : "");
-  $("#pMsg").textContent = over ? "有文案超过 280 字（中文、表情算 2 个字），X 发不出去，改短一点" : !times.length && list.length ? "先填每天几点发" : "";
+  $("#pGo").disabled = !list.length || over;
+  $("#pGo").textContent = list.length ? `铺进排期表（${list.length} 条）` : "铺进排期表";
+  if (over) { $("#pMsg").className = "msg err"; $("#pMsg").textContent = "有文案超过 280 字（中文、表情算 2 个字），X 发不出去，改短一点"; }
+  else if ($("#pMsg").classList.contains("err")) $("#pMsg").textContent = "";
 }
-$("#pAuto").addEventListener("click", () => {
-  const n = Math.max(1, Number($("#pAutoN").value) || 3);
-  pSel = new Set(pItems.filter((x) => !x.out && !x.post && pShow(x)).sort((a, b) => b.score - a.score).slice(0, n).map((x) => x.id));
-  renderPosts(); renderPlan();
-});
+$("#pAuto").addEventListener("click", () => { pSel = new Set(pItems.filter((x) => x.ready && !x.out && !x.post).map((x) => x.id)); renderPosts(); renderPlan(); });
 $("#pClear").addEventListener("click", () => { pSel.clear(); renderPosts(); renderPlan(); });
 $("#pReload").addEventListener("click", loadPosts);
 $("#pTag").addEventListener("change", renderPosts);
 $("#pShowDone").addEventListener("change", renderPosts);
-$("#pDay").addEventListener("change", renderPlan);
-$("#pTimes").addEventListener("input", renderPlan);
-$("#pTimes").addEventListener("change", () => { cfg.pick = cfg.pick || {}; cfg.pick.times = pTimes(); save(); });
+$("#pPrepare").addEventListener("click", async () => {
+  const r = await api.post_prepare();
+  if (!r.ok) return toast(r.error);
+  toast("在后台挑选、写文案，进度在「运行」页的日志里；好了这里会自动刷新");
+  pInit = false;
+});
+$("#pAiCheck").addEventListener("click", async () => {
+  await save(true);
+  const r = await api.caption_check();
+  $("#pAiMsg").textContent = (r.ollama ? "✓ " : "✗ ") + r.ollama_msg + " · " + (r.deepseek ? `✓ DeepSeek（${r.model}）` : "✗ 没填 DeepSeek key（会只用本机模型写，文案会平淡一点）");
+});
 $("#pBad").addEventListener("change", () => { cfg.pick = cfg.pick || {}; cfg.pick.bad_words = $("#pBad").value.split(/[,，]+/).map((x) => x.trim()).filter(Boolean); save(); });
 $("#pInbox").addEventListener("click", async () => {
   const r = await api.inbox_collect();
@@ -1428,21 +1463,27 @@ $("#pInbox").addEventListener("click", async () => {
 $("#pGo").addEventListener("click", async () => {
   const list = pChosen(), btn = $("#pGo");
   btn.disabled = true;
-  const r = await api.post_queue(list.map((x) => ({ id: x.id, text: x.caption || "" })), $("#pDay").value, pTimes());
+  const r = await api.post_queue(list.map((x) => ({ id: x.id, text: x.caption || "" })), $("#pDay").value);
   if (!r.ok) { $("#pMsg").className = "msg err"; $("#pMsg").textContent = r.error; btn.disabled = false; return; }
   pSel.clear();
   renderPlan();
   $("#pMsg").className = "msg ok";
-  $("#pMsg").textContent = `✓ ${r.added.length} 条排好了。时间工作流一分钟内会来取，交给回关助手放进排期表（要开着 Chrome）。`;
+  const days = [...new Set(r.added.map((x) => x.day.slice(5).replace("-", "/")))].join("、");
+  $("#pMsg").textContent = `✓ ${r.added.length} 条铺好了（${days}）。时间工作流一分钟内来取，交给回关助手放进排期表` + (pRule("to_x", true) ? "，再自动交给 X 定时（要开着 Chrome，大约每条 30 秒）。" : "。");
   loadPosts();
 });
 $("nav button[data-page=post]").addEventListener("click", () => {
-  $("#pTimes").value = ((cfg.pick && cfg.pick.times) || ["12:00", "18:30", "21:30"]).join(", ");
   $("#pBad").value = ((cfg.pick && cfg.pick.bad_words) || []).join(", ");
-  loadPosts(); renderPlan();
+  loadPosts();
 });
-setInterval(() => { if ($("#page-post").classList.contains("on") && pItems.some((x) => x.post && x.post.status === "waiting")) loadPosts(); }, 15000);
-
+let pWasRunning = false;
+setInterval(async () => {
+  if (!$("#page-post").classList.contains("on")) return;
+  const st = await api.poll(1e9);
+  if (pWasRunning && !st.running) { pInit = false; loadPosts(); }      // 后台准备完了：刷新，选上准备好的
+  pWasRunning = st.running;
+  if (!st.running && pItems.some((x) => x.post && x.post.status === "waiting")) loadPosts();
+}, 10000);
 let logNext = 0;
 let polling = false;
 async function poll() {

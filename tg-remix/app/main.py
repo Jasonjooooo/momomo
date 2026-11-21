@@ -21,7 +21,7 @@ DATA_ROOT = Path(os.environ.get("TGREMIX_DATA_ROOT") or (Path.home() / "TG二创
 
 # 大包（启动器 + Python 运行环境 + 依赖 + ffmpeg）的版本号。
 # 只有改了本文件、依赖或 ffmpeg 时才加 1；小更新包里的 min_base 大于它时，需要下载完整安装包。
-BASE_BUILD = 3
+BASE_BUILD = 4
 
 UPDATE_STATE = {"active": False, "version": "", "fallback": ""}
 
@@ -158,6 +158,14 @@ def selftest() -> int:
         return 1
     print(f"界面调用的 {len(calls)} 个后台功能: ✅")
 
+    # 裸露检查：onnxruntime + NudeNet 模型都要在，并且真的能跑一条视频
+    from tgremix import nsfw
+
+    ok, why = nsfw.available()
+    print("裸露检查模型:", nsfw.model_path(), "✅" if ok else f"❌ {why}")
+    if not ok:
+        return 1
+
     import edge_tts  # noqa: F401  （AI 配音依赖要打包进来）
     import aiohttp_socks  # noqa: F401  （小更新下载走代理要用）
     print("网络组件: ✅")
@@ -203,6 +211,11 @@ def selftest() -> int:
             print("❌ 处理失败")
             return 1
         info = probe(outs[0])
+        nr = nsfw.check(src, 8.3)
+        print(f"裸露检查（彩条测试视频）: 看了 {nr['frames']} 帧，裸露={nr['nude']}")
+        if not nr["ok"] or nr["nude"]:
+            print("❌ 裸露检查不对")
+            return 1
         print(f"成品: {info.width}x{info.height} {info.duration:.2f}s audio={info.has_audio}")
         # 3 + 3 + （去掉白闪和重复镜头）- 0.5 转场 = 5.5 秒，再除以默认变速 1.1
         expect = 5.5 / 1.1

@@ -5,3 +5,5 @@ edge-tts>=7.0
 aiohttp-socks>=0.8
 certifi>=2024.2.2
 cryptg>=0.4
+onnxruntime>=1.17
+numpy>=1.24

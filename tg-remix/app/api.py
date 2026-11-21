@@ -246,7 +246,7 @@ class Api:
     def save_config(self, data: dict) -> dict:
         try:
             cfg = self._cfg()
-            for k in ("telegram", "channels", "download", "process", "pick", "inbox"):
+            for k in ("telegram", "channels", "download", "process", "pick", "inbox", "caption"):
                 if k in data:
                     cfg[k] = data[k]
             self._write_cfg(cfg)
@@ -532,6 +532,8 @@ class Api:
                 self._set_status("处理中…")
                 log("—— 开始处理 ——")
                 process_all(cfg, state, redo=redo)
+                state.save()
+                self._prepare(cfg)
         finally:
             state.save()
 
@@ -735,8 +737,77 @@ class Api:
         t = re.sub(r"https?://\S+|t\.me/\S+|@\w+", "", meta.get("text") or meta.get("title") or "")
         return re.sub(r"\s+", " ", t).strip()[:200]
 
+    def _ready(self) -> dict:
+        try:
+            return json.loads((self._root / "待发.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {"ids": [], "at": ""}
+
+    def _prepare(self, cfg: dict | None = None) -> None:
+        """挑出推荐分最高的 N 条（默认 40），没有 AI 文案的写好文案，记进「待发.json」，等你点「铺进排期表」"""
+        from tgremix import caption as cap
+        from tgremix.picker import pick_rules
+
+        cfg = cfg or self._cfg()
+        n = int(pick_rules(cfg).get("daily") or 40)
+        items = [it for it in self._post_items() if not (it["meta"].get("pick") or {}).get("out") and not it["meta"].get("post")]
+        items.sort(key=lambda it: -float((it["meta"].get("pick") or {}).get("score", 50)))
+        chosen = items[:n]
+        log(f"—— 准备发帖：可以发的 {len(items)} 条，挑推荐分最高的 {len(chosen)} 条 ——")
+        c = cap.settings(cfg)
+        if c.get("on") is not False:
+            todo = [it for it in chosen if not it["meta"].get("caption_ai")]
+            for i, it in enumerate(todo, 1):
+                if stop_event.is_set():
+                    raise Cancelled()
+                self._set_status(f"AI 写文案 {i}/{len(todo)}…")
+                self._caption_one(it, cfg)
+        (self._root / "待发.json").write_text(json.dumps({"at": datetime.now().isoformat(timespec="seconds"),
+                                                          "ids": [it["id"] for it in chosen]}, ensure_ascii=False), encoding="utf-8")
+        log(f"✅ 准备好 {len(chosen)} 条，去「发帖」页看一眼，点「铺进排期表」" + ("" if len(chosen) >= n else f"（不够 {n} 条，素材再多找一些）"))
+
+    def _caption_one(self, it: dict, cfg: dict) -> dict:
+        from tgremix import caption as cap
+
+        m, f = it["meta"], it["f"]
+        try:
+            r = cap.write(f, float(m.get("duration") or 0), m.get("text") or m.get("title") or "", cfg)
+        except cap.CaptionError as e:
+            log(f"    ⚠️ {f.name} 文案没写成：{e}（先用原帖文字）")
+            return {"ok": False, "error": str(e)}
+        m["caption"] = r["caption"]
+        m["caption_ai"] = {"kind": r["kind"], "desc": r["desc"], "how": r["how"]}
+        f.with_suffix(".json").write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")
+        log(f"    ✍️ {f.name}【{r['kind'] or '?'}】{r['caption']}")
+        return {"ok": True, **r}
+
+    def post_prepare(self) -> dict:
+        """重新挑今天的 N 条并写文案（在后台跑，运行页能看到进度）"""
+        return self._start_thread(lambda: self._prepare())
+
+    def post_recaption(self, item_id: str) -> dict:
+        """这一条换一个文案"""
+        try:
+            f = self._meta_path(item_id)
+            m = json.loads(f.with_suffix(".json").read_text(encoding="utf-8"))
+            m.pop("caption_ai", None)
+            r = self._caption_one({"f": f, "meta": m}, self._cfg())
+            return r if r.get("ok") else {"ok": False, "error": r.get("error")}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": str(e) if isinstance(e, UserError) else _friendly(e)}
+
+    def caption_check(self) -> dict:
+        """AI 文案能不能用：本机 Ollama 和模型、DeepSeek key"""
+        from tgremix import caption as cap
+
+        c = cap.settings(self._cfg())
+        ok, why = cap.ollama_ok(c)
+        return {"ok": True, "ollama": ok, "ollama_msg": why or f"本机模型 {c['ollama_model']} 可以用",
+                "deepseek": bool(str(c.get("api_key") or "").strip()), "model": c.get("model") or "deepseek-chat"}
+
     def post_list(self) -> dict:
         try:
+            ready = set(self._ready().get("ids") or [])
             out = []
             for it in self._post_items():
                 m, f = it["meta"], it["f"]
@@ -746,7 +817,7 @@ class Api:
                             "out": bool(p.get("out")), "reasons": p.get("reasons") or [], "views": p.get("views") or 0,
                             "source": p.get("source", ""), "duration": m.get("duration", 0),
                             "size_mb": round(f.stat().st_size / 1048576, 1), "caption": self._caption(m), "post": m.get("post"),
-                            "thumb": self._thumb(f)})
+                            "ready": it["id"] in ready, "ai": m.get("caption_ai") or None, "thumb": self._thumb(f)})
             out.sort(key=lambda x: (x["out"], bool(x["post"]), -x["score"]))
             return {"ok": True, "items": out}
         except Exception as e:  # noqa: BLE001
@@ -793,15 +864,41 @@ class Api:
         except (OSError, ValueError):
             pass
 
-    def post_queue(self, items: list, start_day: str, times: list) -> dict:
-        """把选好的成品排进队列：按「从哪天开始、每天几点」依次排，时间线插件（时间工作流）一分钟内来取，交给回关助手放进排期表"""
+    def _slots(self, day: str, n: int) -> list[tuple[str, str]]:
+        """这一天 9:00–24:00 每 20 分钟一格（按选片规则），去掉已经过去的，随机留空，挑 n 格；不够就排到第二天"""
+        import random
+
+        from tgremix.picker import pick_rules
+
+        r = pick_rules(self._cfg())
+        toM = lambda t: int(str(t).split(":")[0]) * 60 + int(str(t).split(":")[1])  # noqa: E731
+        start, end, step = toM(r.get("slot_start") or "09:00"), toM(r.get("slot_end") or "24:00"), max(5, int(r.get("slot_step") or 20))
+        out, d = [], datetime.strptime(day, "%Y-%m-%d")
+        for _ in range(10):
+            key = d.strftime("%Y-%m-%d")
+            now = datetime.now()
+            grid = [m for m in range(start, end, step)
+                    if not (key == now.strftime("%Y-%m-%d") and m < now.hour * 60 + now.minute + 10)]
+            need = n - len(out)
+            take = sorted(random.sample(grid, need)) if len(grid) > need else grid
+            out += [(key, f"{m // 60:02d}:{m % 60:02d}") for m in take]
+            if len(out) >= n:
+                break
+            d += timedelta(days=1)
+        return out[:n]
+
+    def post_queue(self, items: list, start_day: str, times: list | None = None) -> dict:
+        """铺进排期表：从 start_day 开始，9:00–24:00 每 20 分钟一格随机挑（times 给了就按给的时间排）；
+        时间工作流一分钟内来取，交给回关助手放进排期表，再自动交给 X 定时"""
         try:
-            times = sorted({t for t in (times or []) if re.fullmatch(r"\d{2}:\d{2}", str(t))})
-            if not times:
-                return {"ok": False, "error": "至少要设一个发帖时间"}
             if not items:
                 return {"ok": False, "error": "还没有选视频"}
+            from tgremix.picker import pick_rules
+
+            to_x = pick_rules(self._cfg()).get("to_x") is not False
+            times = sorted({t for t in (times or []) if re.fullmatch(r"\d{2}:\d{2}", str(t))})
             day0 = datetime.strptime(start_day, "%Y-%m-%d")
+            slots = None if times else self._slots(start_day, len(items))
             with self._lock:
                 q = self._queue()
                 busy = {j["file"] for j in q["jobs"] if j["status"] in ("waiting", "sending")}
@@ -810,11 +907,15 @@ class Api:
                     f = self._meta_path(it["id"])
                     if str(f) in busy:
                         continue
-                    day = (day0 + timedelta(days=i // len(times))).strftime("%Y-%m-%d")
-                    hm = times[i % len(times)]
+                    if slots is not None:
+                        day, hm = slots[i] if i < len(slots) else slots[-1]
+                    else:
+                        day = (day0 + timedelta(days=i // len(times))).strftime("%Y-%m-%d")
+                        hm = times[i % len(times)]
                     text = str(it.get("text") or "")[:1000]
                     qid = f"q{int(time.time() * 1000):x}{i}"
-                    q["jobs"].append({"qid": qid, "file": str(f), "text": text, "day": day, "hm": hm, "status": "waiting", "at": time.time()})
+                    q["jobs"].append({"qid": qid, "file": str(f), "text": text, "day": day, "hm": hm, "status": "waiting", "at": time.time(),
+                                      "to_x": to_x})
                     self._set_post(f, {"status": "waiting", "day": day, "hm": hm, "qid": qid})
                     meta_f = f.with_suffix(".json")
                     try:
@@ -855,7 +956,7 @@ class Api:
                     j["status"] = "waiting"          # 上次传到一半断了：重新来
                 if j["status"] == "waiting" and Path(j["file"]).exists():
                     out.append({"qid": j["qid"], "name": Path(j["file"]).name, "size": Path(j["file"]).stat().st_size,
-                                "type": "video/mp4", "text": j["text"], "day": j["day"], "hm": j["hm"]})
+                                "type": "video/mp4", "text": j["text"], "day": j["day"], "hm": j["hm"], "toX": j.get("to_x", False)})
             return out
 
     def _postq_file(self, qid: str) -> Path | None:

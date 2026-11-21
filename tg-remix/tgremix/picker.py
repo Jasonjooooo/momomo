@@ -20,6 +20,10 @@ from pathlib import Path
 from .runtime import ffmpeg_bin, log
 
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".m4v"}
+# 色情词：不管设置里的「有这些词不要」怎么改，这些一直挡（画面另外有裸露检查）
+PORN_WORDS = ["约炮", "福利姬", "成人视频", "成人内容", "18禁", "18+", "🔞", "无码", "有码", "裸聊", "裸体", "全裸", "露点",
+              "色情", "黄片", "黄色视频", "援交", "上门服务", "特殊服务", "onlyfans", "反差婊", "做爱", "啪啪", "约啪",
+              "人妻", "少妇", "萝莉", "吃瓜群", "资源群", "看片"]
 INBOX_CHANNEL = "下载导入"
 
 
@@ -85,7 +89,11 @@ def score_tg(m, text: str, baseline: float | None, dup_n: int, rules: dict) -> d
         out = True
         reasons.append(["b", f"✗ {int(dur // 60)}:{int(dur % 60):02d} 超过 X 的 {int(rules['max_sec'] // 60)}:{int(rules['max_sec'] % 60):02d} 上限"])
     bad = _bad_word(text, rules.get("bad_words"))
-    if bad:
+    porn = _bad_word(text, PORN_WORDS)
+    if porn:
+        out = True
+        reasons.append(["b", f"✗ 有色情词「{porn}」"])
+    elif bad:
         out = True
         reasons.append(["b", f"✗ 有广告词「{bad}」"])
 
@@ -169,7 +177,11 @@ def score_inbox(info: dict, dur: float, short: int, rules: dict) -> dict:
         out = True
         reasons.append(["b", f"✗ {int(dur // 60)}:{int(dur % 60):02d} 超过 X 的 {int(rules['max_sec'] // 60)}:{int(rules['max_sec'] % 60):02d} 上限"])
     bad = _bad_word(info.get("title", ""), rules.get("bad_words"))
-    if bad:
+    porn = _bad_word(info.get("title", ""), PORN_WORDS)
+    if porn:
+        out = True
+        reasons.append(["b", f"✗ 有色情词「{porn}」"])
+    elif bad:
         out = True
         reasons.append(["b", f"✗ 有广告词「{bad}」"])
     if short and short < rules["min_short"]:
@@ -270,8 +282,9 @@ def similar(a: list[int], b: list[int], bits: int = 10) -> bool:
     return sum(1 for x, y in zip(a, b) if bin(x ^ y).count("1") <= bits) >= 2
 
 
-def find_same(state_data: dict, fp: list[int]) -> dict | None:
+def find_same(state_data: dict, fp: list[int], key: str = "") -> dict | None:
+    """以前处理过的视频里，画面一样的（不算这个视频自己以前的记录：「全部重新处理」时会再处理一遍自己）"""
     for rec in state_data.get("fp", []):
-        if similar(rec.get("h"), fp):
+        if rec.get("k") != key and similar(rec.get("h"), fp):
             return rec
     return None

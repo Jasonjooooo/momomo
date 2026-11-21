@@ -51,6 +51,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt pywebview pyinstaller pillow
+          # 裸露检查模型：开源 NudeNet（MIT 协议）里的 320n.onnx，约 12MB
+          mkdir -p build/models build/nn
+          pip download nudenet==3.4.2 --no-deps -d build/nn
+          python -c "import zipfile, glob; z = zipfile.ZipFile(glob.glob('build/nn/nudenet-*.whl')[0]); open('build/models/320n.onnx', 'wb').write(z.read('nudenet/320n.onnx'))"
+          ls -la build/models
 
       - name: 获取 ffmpeg
         env:
@@ -66,6 +71,7 @@ jobs:
             --collect-submodules python_socks \
             --collect-all edge_tts \
             --collect-submodules aiohttp_socks \
+            --collect-all onnxruntime \
             --hidden-import api \
             --collect-submodules tgremix \
             --hidden-import csv \
@@ -115,6 +121,9 @@ jobs:
           mkdir -p "$APP/Contents/Resources/ffbin"
           cp -R build/ffbin/. "$APP/Contents/Resources/ffbin/"
           find "$APP/Contents/Resources/ffbin" -type f \( -name "ff*" -o -name "*.dylib" \) -exec codesign --force --sign - {} \;
+          # 裸露检查模型
+          mkdir -p "$APP/Contents/Resources/models"
+          cp build/models/320n.onnx "$APP/Contents/Resources/models/"
 
           VER=$(python -c "import re;print(re.search(r'__version__ = \"(.+?)\"', open('tgremix/__init__.py').read()).group(1))")
           echo "VER=$VER" >> "$GITHUB_ENV"

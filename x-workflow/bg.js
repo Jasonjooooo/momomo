@@ -143,6 +143,8 @@ async function postPump() {
     if (!q || !q.ok || !q.jobs || !q.jobs.length) return;
     const { hgId } = await chrome.storage.local.get(["hgId"]);
     if (!hgId) return;                                     // 回关助手还没连上：先放着，连上了再送
+    const toX = new Set();                                 // 放好以后要交给 X 定时的日子
+    let okN = 0;
     for (const j of q.jobs) {
       let r = await hgCall({ app: "时间工作流", type: "wf-post-begin", qid: j.qid, name: j.name, mime: j.type, size: j.size, text: j.text, day: j.day, hm: j.hm });
       for (let off = 0; r.ok && off < j.size; off += PIECE) {
@@ -154,14 +156,21 @@ async function postPump() {
       else hgCall({ app: "时间工作流", type: "wf-post-abort", qid: j.qid });
       await tgFetch("/postq/done", { qid: j.qid, ok: !!r.ok, day: r.day || "", hm: r.hm || "", error: r.ok ? "" : (r.reason || "没放进去") }).catch(() => {});
       if (r.ok) {
+        okN++;
+        if (j.toX) toX.add(r.day);
         const { wfPosted } = await chrome.storage.local.get(["wfPosted"]);
         const log = (wfPosted || []).concat([{ at: Date.now(), day: r.day, hm: r.hm, name: j.name, moved: r.day !== j.day || r.hm !== j.hm }]).slice(-50);
         await chrome.storage.local.set({ wfPosted: log });
       }
     }
-    if (q.jobs.length) chrome.notifications.create("wf|post|" + Date.now(), {
+    /* 交给 X 定时：回关助手一天一天来（它在 X 的发帖框里一条条设好定时、点「安排」） */
+    const days = [...toX].sort();
+    if (days.length) await chrome.storage.local.set({ wfToX: { days, at: Date.now() } });
+    if (days.length) await hgCall({ app: "时间工作流", type: "wf-sched-x-all", day: days[0] });
+    if (okN) chrome.notifications.create("wf|post|" + Date.now(), {
       type: "basic", iconUrl: "icons/icon128.png", priority: 1,
-      title: `TG二创 的 ${q.jobs.length} 条视频放进发帖排期表了`, message: "打开回关助手的发帖排期表看看，没问题就交给 X 定时。点这里打开时间工作流",
+      title: `TG二创 的 ${okN} 条视频放进发帖排期表了`,
+      message: (days.length ? "回关助手正在交给 X 定时，Chrome 开着别动那个 X 页面。" : "打开发帖排期表看看，没问题就交给 X 定时。") + "点这里打开时间工作流",
     });
   } finally { pumping = false; }
 }

@@ -179,6 +179,11 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, send) => {
   else if (msg.type === "xfb-sched-open" && msg.date && msg.time) openSlot(msg.date, msg.time);
   else if (msg.type === "wf-open-pool") wfOpenPool();
   else if (msg.type === "wf-inbox-fetch") { wfInboxFetch().then(send); return true; }
+  else if (msg.type === "wf-sched-x-all" && msg.day) {
+    /* 把这一天还没交给 X 的一条条交给 X 定时（和排期表里点「把这天还没发的都交给 X 定时」一样） */
+    nextForX(msg.day).then((hm) => { if (hm) scheduleOnX(msg.day, hm, true); send({ ok: !!hm }); });
+    return true;
+  }
   else if (msg.type === "wf-post-begin" || msg.type === "wf-post-chunk" || msg.type === "wf-post-end" || msg.type === "wf-post-abort") {
     wfPost(msg).then(send, (e) => send({ ok: false, reason: String((e && e.message) || e) }));
     return true;

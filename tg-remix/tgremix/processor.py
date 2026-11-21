@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import check_volume, folder, resolve
-from . import picker
+from . import nsfw, picker
 from .edit import build_segments, plan_shots
 from .overlays import sticker_filters, text_filters
 from . import voiceover as vo
@@ -616,6 +616,9 @@ def process_all(cfg: dict, state: State, redo: bool = False, limit: int | None =
 
     out_dir = folder(cfg, "output") / datetime.now().strftime("%Y-%m-%d")
     ok = skipped = 0
+    pick_rules = picker.pick_rules(cfg)
+    nsfw_stats: dict = {}      # 每个群：检查了几个、有裸露的几个
+    nsfw_warned: list = []
     log(f"🎬 开始处理 {len(jobs)} 个视频 → {out_dir}")
     for i, job in enumerate(jobs, 1):
         check_stop()
@@ -631,12 +634,35 @@ def process_all(cfg: dict, state: State, redo: bool = False, limit: int | None =
             state.save()
             skipped += 1
             continue
+        if not only and pick_rules.get("nsfw") is not False:
+            # 裸露检查：本机看 8–12 帧，露胸 / 臀 / 下体的不要（隐晦擦边可以过）
+            try:
+                src_dur = probe(job.src).duration
+            except Exception:  # noqa: BLE001
+                src_dur = 0.0
+            nr = nsfw.check(job.src, src_dur)
+            ch = job.meta.get("channel_title") or job.meta.get("channel", "")
+            st = nsfw_stats.setdefault(ch, [0, 0])
+            st[0] += 1
+            if not nr["ok"]:
+                if not nsfw_warned:
+                    log(f"    ⚠️ 没做裸露检查：{nr['error']}")
+                    nsfw_warned.append(1)
+                job.meta.setdefault("pick", {"score": 50, "reasons": [], "out": False}).setdefault("reasons", []).append(["b", "⚠ 没做裸露检查"])
+            elif nr["nude"]:
+                st[1] += 1
+                what = "、".join(sorted({h[1] for h in nr["hits"]}))
+                log(f"    ⏭ 有裸露画面（{what}，第 {nr['hits'][0][0]:.0f} 秒），不要")
+                state.mark_processed(job.key)
+                state.save()
+                skipped += 1
+                continue
         if not only:
             try:
                 fp = picker.fingerprint(job.src, probe(job.src).duration)
             except Exception:  # noqa: BLE001
                 fp = None
-            same = picker.find_same(state.data, fp) if fp else None
+            same = picker.find_same(state.data, fp, job.key) if fp else None
             if same:
                 log(f"    ⏭ 和 {same.get('k')} 是同一个视频" + ("（已经发过了）" if same.get("posted") else "") + "，跳过")
                 state.mark_processed(job.key)
@@ -653,7 +679,9 @@ def process_all(cfg: dict, state: State, redo: bool = False, limit: int | None =
         ok += 1
         if not only:
             if fp:
-                state.data.setdefault("fp", []).append({"k": job.key, "h": fp, "out": str(out)})
+                recs = [r for r in state.data.setdefault("fp", []) if r.get("k") != job.key]   # 重新处理：换掉自己以前的记录
+                recs.append({"k": job.key, "h": fp, "out": str(out)})
+                state.data["fp"] = recs
                 del state.data["fp"][:-5000]
             state.mark_processed(job.key)
             state.save()
@@ -674,6 +702,10 @@ def process_all(cfg: dict, state: State, redo: bool = False, limit: int | None =
             "标签": "、".join(job.meta.get("tags") or []),
             "成品": str(out.relative_to(out_dir)) if out.is_relative_to(out_dir) else out.name,
         })
+    # 一个群里有裸露的太多：提醒去清理
+    for ch, (seen, nude) in nsfw_stats.items():
+        if nude >= 3 and nude / max(seen, 1) >= 0.3:
+            log(f"⚠️ 「{ch}」这次 {seen} 个视频里有 {nude} 个有裸露画面，建议在「群组」页把这个群关掉")
     failed = len(jobs) - ok - skipped
     log(f"\n✅ 处理完成：成功 {ok} 个" + (f"，跳过 {skipped} 个（重复 / 不合格）" if skipped else "") + (f"，失败 {failed} 个" if failed else ""))
     return ok
