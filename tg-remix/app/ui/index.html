@@ -304,6 +304,7 @@ td.del button:hover { background: var(--input); color: var(--err); }
       <button class="btn" id="pAuto">只选准备好的</button>
       <button class="btn" id="pClear">全部不选</button>
       <button class="btn" id="pDelSel" title="删掉选中的成品（已排期的不会删）">🗑 删除选中的</button>
+      <button class="btn" id="pOrigAll" title="没排期的都改用原帖文字当文案，并关掉 AI 写文案">全部用原帖文字</button>
       <label>标签 <select id="pTag"><option value="">全部</option></select></label>
       <label><input type="checkbox" id="pShowDone"> 显示已排期的</label>
       <button class="btn" id="pUndoAll" hidden title="只在 TG二创 里取消，回关助手排期表里的不动">已排期的全部取消排期</button>
@@ -1502,6 +1503,13 @@ async function pDelete(ids) {
   loadPosts();
 }
 $("#pDelSel").addEventListener("click", () => pDelete([...pSel]));
+$("#pOrigAll").addEventListener("click", async () => {
+  if (!confirm("没排期的视频都改用原帖文字当文案（去掉链接、话题标签、频道广告），以后也不再用 AI 写？\n你手动改过的文案也会被换掉。")) return;
+  cfg.caption = cfg.caption || {}; cfg.caption.on = false; await save(true); bindForm();
+  const r = await api.post_use_original();
+  toast(`换好了 ${r.count} 条，以后准备时直接用原帖文字`);
+  loadPosts();
+});
 $("#pReload").addEventListener("click", loadPosts);
 $("#pTag").addEventListener("change", renderPosts);
 $("#pShowDone").addEventListener("change", () => { $("#pUndoAll").hidden = !$("#pShowDone").checked; renderPosts(); });

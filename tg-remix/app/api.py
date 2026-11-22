@@ -738,11 +738,45 @@ class Api:
 
     @staticmethod
     def _caption(meta: dict) -> str:
-        """文案草稿：原帖文字去掉链接、@、多余空白"""
+        """文案草稿：有写好的就用写好的，没有就用原帖文字（去掉链接、@、话题标签、频道广告）"""
         if meta.get("caption") is not None:
             return meta["caption"]
-        t = re.sub(r"https?://\S+|t\.me/\S+|@\w+", "", meta.get("text") or meta.get("title") or "")
-        return re.sub(r"\s+", " ", t).strip()[:200]
+        return Api._original(meta)
+
+    # 原帖里频道自己加的推广行：有这些词的整行去掉
+    PROMO = re.compile(r"频道|投稿|订阅|关注我|关注本|商务|合作|联系|广告|推广|加入|进群|交流群|官方群|点击|戳|👉|👇|➡|📣|📢|欢迎|爆料|私信")
+
+    @staticmethod
+    def _original(meta: dict) -> str:
+        raw = str(meta.get("text") or meta.get("title") or "")
+        lines = []
+        for line in raw.splitlines():
+            if Api.PROMO.search(line):
+                continue
+            t = re.sub(r"https?://\S+|t\.me/\S+|@\w+|[#＃]\S+", "", line)
+            t = re.sub(r"\s+", " ", t).strip(" -_|·•【】[]")
+            if len(t) >= 2:
+                lines.append(t)
+        return " ".join(lines)[:200]
+
+    def post_use_original(self, ids: list | None = None) -> dict:
+        """把 AI 写的文案换回原帖文字（ids 不给就是全部没排期的）"""
+        n = 0
+        want = set(ids) if ids else None
+        for it in self._post_items():
+            m = it["meta"]
+            if m.get("post") and (m["post"].get("status") != "failed"):
+                continue
+            if want is not None and it["id"] not in want:
+                continue
+            m["caption"] = self._original(m)
+            m.pop("caption_ai", None)
+            try:
+                it["f"].with_suffix(".json").write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")
+                n += 1
+            except OSError:
+                pass
+        return {"ok": True, "count": n}
 
     def _ready(self) -> dict:
         try:
