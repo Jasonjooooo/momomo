@@ -172,7 +172,7 @@ chrome.runtime.onInstalled.addListener(wfPush);
 /* 时间工作流发来的请求 */
 chrome.runtime.onMessageExternal.addListener((msg, sender, send) => {
   if (sender.id !== WF_ID || !msg) return false;
-  if (msg.type === "wf-pull") { wfPush().then((ok) => send({ ok })); return true; }
+  if (msg.type === "wf-pull") { wfPush().then((ok) => send({ ok, post: 1, version: chrome.runtime.getManifest().version })); return true; }
   if (msg.type === "xfb-open-schedule") openSchedulePage();
   else if (msg.type === "xfb-open-inbox") openInboxPage();
   else if (msg.type === "xfb-sched-x" && msg.date && msg.time) scheduleOnX(msg.date, msg.time, false);

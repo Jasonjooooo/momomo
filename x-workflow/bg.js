@@ -145,6 +145,7 @@ async function postPump() {
     const { hgId } = await chrome.storage.local.get(["hgId"]);
     if (!hgId) { note("回关助手还没连上时间工作流：打开一次 x.com 页面（回关助手在那里运行），或把回关助手更新到带发帖连接的 2.28.1"); return; }
     const ping = await hgCall({ app: "时间工作流", type: "wf-pull" });
+    if (ping && ping.ok && !ping.post) { note("你装的回关助手里没有接收视频的部分：把回关助手换成 2.28.2（带发帖连接）的版本，再在 chrome://extensions 里刷新它"); return; }
     if (!ping || !ping.ok) { note("回关助手没回应：" + ((ping && ping.reason) || "") + "。在 chrome://extensions 里确认回关助手开着，再打开一次 x.com"); return; }
     const toX = new Set();                                 // 放好以后要交给 X 定时的日子
     let okN = 0;
@@ -156,6 +157,7 @@ async function postPump() {
         r = await hgCall({ app: "时间工作流", type: "wf-post-chunk", qid: j.qid, off, data: toB64(await res.arrayBuffer()) });
       }
       if (r.ok) r = await hgCall({ app: "时间工作流", type: "wf-post-end", qid: j.qid });
+      if (!r.ok && r.reason === "回关助手没回应") r.reason = "回关助手没回应（多半是装的回关助手不是带发帖连接的版本，换成 2.28.2）";
       else hgCall({ app: "时间工作流", type: "wf-post-abort", qid: j.qid });
       await tgFetch("/postq/done", { qid: j.qid, ok: !!r.ok, day: r.day || "", hm: r.hm || "", error: r.ok ? "" : (r.reason || "没放进去") }).catch(() => {});
       if (r.ok) {
