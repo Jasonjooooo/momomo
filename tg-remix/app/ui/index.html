@@ -318,6 +318,10 @@ td.del button:hover { background: var(--input); color: var(--err); }
     <h3>AI 写文案 <span class="hint">本机看图模型看画面（画面不出你的电脑）→ DeepSeek 按 吐槽 / 猎奇 / 搞笑 / 震撼人心 / 警示教育 / 工业工具 的口吻写一句</span></h3>
     <div class="row"><label>本机看图模型</label><input type="text" data-path="caption.ollama_model" placeholder="qwen2.5vl:7b" style="max-width:220px">
       <button class="btn" id="pAiCheck">检查</button><span class="help" id="pAiMsg"></span></div>
+    <div class="row"><label>Gemini Key</label><input type="password" data-path="caption.gemini_key" placeholder="可选：填了就用 Gemini 看整条视频（连声音），比本机模型准得多" autocomplete="off">
+      <input type="text" data-path="caption.gemini_model" placeholder="gemini-flash-latest" style="max-width:200px"></div>
+    <p class="help">Gemini key 免费申请：<a data-url="https://aistudio.google.com/apikey">aistudio.google.com/apikey</a>（用 Google 账号登录 → Create API key）。要开代理。
+      填了以后视频会发给 Google 看（不填就只在你电脑上看）；Gemini 看不了的（比如它觉得太露）会自动换回本机模型。</p>
     <div class="row"><label>DeepSeek Key</label><input type="password" data-path="caption.api_key" placeholder="空着就用「效果」页 AI 解说里填的 key" autocomplete="off"></div>
     <div class="row"><label>DeepSeek 模型</label><input type="text" data-path="caption.model" placeholder="deepseek-chat" style="max-width:220px">
       <span class="help">空着就用 AI 解说里填的</span></div>
@@ -1415,6 +1419,12 @@ function renderPosts() {
       clearTimeout(pCapTimer[it.id]); pCapTimer[it.id] = setTimeout(() => api.post_caption(it.id, ta.value), 600);
     });
     vb.append(meta, why, ta, cnt);
+    if (it.ai && it.ai.desc) {
+      const dd = document.createElement("details"); dd.className = "help";
+      dd.append(Object.assign(document.createElement("summary"), { textContent: "AI 看到了什么", style: "cursor:pointer" }),
+        Object.assign(document.createElement("div"), { textContent: it.ai.desc, style: "white-space:pre-line;margin-top:4px" }));
+      vb.append(dd);
+    }
     if (!it.post && it.ai && (it.ai.alts || []).length) {
       const al = document.createElement("div"); al.className = "alts";
       al.append(Object.assign(document.createElement("span"), { className: "help", textContent: "AI 另外写的：" }));
@@ -1511,7 +1521,7 @@ $("#pPrepare").addEventListener("click", async () => {
 $("#pAiCheck").addEventListener("click", async () => {
   await save(true);
   const r = await api.caption_check();
-  $("#pAiMsg").textContent = (r.ollama ? "✓ " : "✗ ") + r.ollama_msg + " · " + (r.deepseek ? `✓ DeepSeek（${r.model}）` : "✗ 没填 DeepSeek key（会只用本机模型写，文案会平淡一点）");
+  $("#pAiMsg").textContent = (r.gemini == null ? "" : (r.gemini ? "✓ " : "✗ ") + r.gemini_msg + " · ") + (r.ollama ? "✓ " : "✗ ") + r.ollama_msg + " · " + (r.deepseek ? `✓ DeepSeek（${r.model}）` : "✗ 没填 DeepSeek key（会只用本机模型写，文案会平淡一点）");
 });
 $("#pBad").addEventListener("change", () => { cfg.pick = cfg.pick || {}; cfg.pick.bad_words = $("#pBad").value.split(/[,，]+/).map((x) => x.trim()).filter(Boolean); save(); });
 $("#pInbox").addEventListener("click", async () => {

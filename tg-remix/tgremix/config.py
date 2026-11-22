@@ -20,7 +20,8 @@ DEFAULTS = {
              "times": ["12:00", "18:30", "21:30"]},
     # 发帖文案：本机 Ollama 看图模型描述画面 → DeepSeek 写（key 没填就用 AI 解说里的）
     "caption": {"on": True, "ollama_url": "http://127.0.0.1:11434", "ollama_model": "qwen2.5vl:7b",
-                "api_base": "", "api_key": "", "model": "", "examples": ""},
+                "api_base": "", "api_key": "", "model": "", "examples": "",
+                "gemini_key": "", "gemini_model": "gemini-flash-latest"},
     # 收件箱：智Tool 等插件下载到这个文件夹的视频，自动收进素材库
     "inbox": {"on": True, "dir": "~/Downloads/DataTool"},
     "process": {

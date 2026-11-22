@@ -863,7 +863,9 @@ class Api:
 
         c = cap.settings(self._cfg())
         ok, why = cap.ollama_ok(c)
-        return {"ok": True, "ollama": ok, "ollama_msg": why or f"本机模型 {c['ollama_model']} 可以用",
+        g_ok, g_why = cap.gemini_ok(c) if str(c.get("gemini_key") or "").strip() else (None, "")
+        return {"ok": True, "gemini": g_ok, "gemini_msg": g_why or "Gemini 可以用（会用它看整条视频）",
+                "ollama": ok, "ollama_msg": why or f"本机模型 {c['ollama_model']} 可以用",
                 "deepseek": bool(str(c.get("api_key") or "").strip()), "model": c.get("model") or "deepseek-chat"}
 
     def post_list(self) -> dict:

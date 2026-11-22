@@ -147,6 +147,101 @@ def describe(path: Path, duration: float, c: dict) -> str:
     return text[:900]
 
 
+# ---------------------------------------------------------------- Gemini（可选，云端）
+GEMINI = "https://generativelanguage.googleapis.com"
+WATCH_PROMPT = (
+    "这是一条短视频（画面和声音都在）。请用中文回答，每项一两句，只写看到和听到的，不要编：\n"
+    "1. 场景和人物：在哪、有谁（大概年龄、穿着、身份感）\n"
+    "2. 经过：按时间顺序发生了什么，前后有什么变化\n"
+    "3. 看点：整条视频最让人想看完的一刻是什么——反转、笑点、危险、离谱、厉害的地方，具体到动作和第几秒\n"
+    "4. 说的话：视频里人说了什么（原话，方言 / 外语翻成中文），背景音乐或音效有什么特点；没有就写「无」\n"
+    "5. 画面上的字：字幕、标题、牌子上的字，原样抄下来；没有就写「无」\n"
+    "6. 情绪：人物的表情和整体氛围（好笑 / 尴尬 / 紧张 / 震惊 / 治愈……）"
+)
+
+
+def gemini_ok(c: dict) -> tuple[bool, str]:
+    key = str(c.get("gemini_key") or "").strip()
+    if not key:
+        return False, "没填 Gemini key"
+    try:
+        req = urllib.request.Request(f"{GEMINI}/v1beta/models?pageSize=1", headers={"x-goog-api-key": key})
+        with urllib.request.urlopen(req, timeout=15, context=ssl_context()) as r:
+            r.read()
+        return True, ""
+    except urllib.error.HTTPError as e:
+        return False, "Gemini key 不对" if e.code in (400, 401, 403) else f"Gemini 返回错误 {e.code}"
+    except Exception as e:  # noqa: BLE001
+        return False, f"连不上 Gemini（要开代理）：{e}"
+
+
+def _g_req(url: str, key: str, data: bytes | None = None, headers: dict | None = None, timeout: int = 120):
+    req = urllib.request.Request(url, data=data, headers={"x-goog-api-key": key, **(headers or {})})
+    return urllib.request.urlopen(req, timeout=timeout, context=ssl_context())
+
+
+def _gemini_upload(path: Path, key: str) -> dict:
+    """视频超过 14MB：先传到 Gemini 的文件区（48 小时后它自己删），等它处理好"""
+    import time
+
+    size = path.stat().st_size
+    with _g_req(f"{GEMINI}/upload/v1beta/files", key, json.dumps({"file": {"display_name": "clip"}}).encode(),
+                {"X-Goog-Upload-Protocol": "resumable", "X-Goog-Upload-Command": "start",
+                 "X-Goog-Upload-Header-Content-Length": str(size), "X-Goog-Upload-Header-Content-Type": "video/mp4",
+                 "Content-Type": "application/json"}) as r:
+        url = r.headers.get("X-Goog-Upload-URL")
+    if not url:
+        raise CaptionError("Gemini 没给上传地址")
+    with _g_req(url, key, path.read_bytes(), {"X-Goog-Upload-Offset": "0", "X-Goog-Upload-Command": "upload, finalize",
+                                              "Content-Length": str(size)}, timeout=600) as r:
+        f = json.loads(r.read())["file"]
+    for _ in range(60):
+        if f.get("state") == "ACTIVE":
+            return f
+        if f.get("state") == "FAILED":
+            raise CaptionError("Gemini 处理视频失败")
+        time.sleep(3)
+        with _g_req(f"{GEMINI}/v1beta/{f['name']}", key) as r:
+            f = json.loads(r.read())
+    raise CaptionError("Gemini 处理视频太久")
+
+
+def watch_gemini(path: Path, c: dict) -> str:
+    """Gemini 看整条视频（画面 + 声音），按看点 / 说的话 / 字 / 情绪描述"""
+    key = str(c.get("gemini_key") or "").strip()
+    model = str(c.get("gemini_model") or "gemini-flash-latest").strip()
+    try:
+        if path.stat().st_size <= 14 * 1024 * 1024:
+            media = {"inline_data": {"mime_type": "video/mp4", "data": base64.b64encode(path.read_bytes()).decode()}}
+        else:
+            f = _gemini_upload(path, key)
+            media = {"file_data": {"mime_type": f.get("mimeType") or "video/mp4", "file_uri": f["uri"]}}
+        body = {"contents": [{"parts": [media, {"text": WATCH_PROMPT}]}],
+                "generationConfig": {"temperature": 0.3, "maxOutputTokens": 1500},
+                "safetySettings": [{"category": k, "threshold": "BLOCK_ONLY_HIGH"} for k in
+                                   ("HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH",
+                                    "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT")]}
+        with _g_req(f"{GEMINI}/v1beta/models/{model}:generateContent", key, json.dumps(body).encode(),
+                    {"Content-Type": "application/json"}, timeout=300) as r:
+            data = json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.loads(e.read()).get("error", {}).get("message", "")
+        except Exception:  # noqa: BLE001
+            msg = ""
+        raise CaptionError(f"Gemini 返回错误 {e.code}" + (f"：{msg[:150]}" if msg else "")) from e
+    except CaptionError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise CaptionError(f"连不上 Gemini（要开代理）：{e}") from e
+    cands = data.get("candidates") or []
+    text = "".join(p.get("text", "") for p in ((cands[0].get("content") or {}).get("parts") or [])) if cands else ""
+    if len(text.strip()) < 6:
+        why = (cands[0].get("finishReason") if cands else "") or (data.get("promptFeedback") or {}).get("blockReason") or ""
+        raise CaptionError("Gemini 没看出内容" + (f"（{why}）" if why else ""))
+    return text.strip()[:1500]
+
+
 # ---------------------------------------------------------------- 写文案
 def _prompt(desc: str, post_text: str, examples: list[str] | None = None) -> str:
     kinds = "\n".join(f"- {v}" for v in KINDS.values())
@@ -216,20 +311,26 @@ def write(path: Path, duration: float, post_text: str, cfg: dict, examples: list
     c = settings(cfg)
     has_key = bool(str(c.get("api_key") or "").strip())
     ok, why = ollama_ok(c)
-    desc, notes = "", []
-    if ok:
+    desc, notes, seer = "", [], "本机看画面"
+    if str(c.get("gemini_key") or "").strip():
+        try:
+            desc, seer = watch_gemini(path, c), "Gemini 看整条视频"
+        except CaptionError as e:
+            notes.append(str(e))
+    if not desc and ok:
         try:
             desc = describe(path, duration, c)
         except CaptionError as e:
             notes.append(str(e))
-    else:
+    elif not desc:
         notes.append(why)
     if not desc and not _clean(post_text):
         raise CaptionError("；".join(notes) or "没有画面描述也没有原帖文字，写不出来")
     prompt = _prompt(desc, post_text, examples)
     if has_key:
         kind, caps, best = _parse(_deepseek(c, prompt))
-        how = "本机看画面 + DeepSeek 写" if desc else "DeepSeek 看原帖文字写（本机模型没用上：" + "；".join(notes) + "）"
+        how = (f"{seer} + DeepSeek 写" + (f"（{notes[0]}，换成本机看）" if notes and desc else "")) if desc \
+            else "DeepSeek 看原帖文字写（看画面没成功：" + "；".join(notes) + "）"
     elif ok:
         kind, caps, best = _parse(_ollama(c, prompt))
         how = "本机模型看画面并写（没填 DeepSeek key）"
