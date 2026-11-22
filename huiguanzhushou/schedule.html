@@ -62,6 +62,12 @@
   .cell.past:not(.has) { opacity: 0.35; }
   .cell.has { background: var(--soft); border-color: var(--blue); }
   .cell.has .cm { color: var(--blue); }
+  .cell[draggable="true"] { cursor: grab; }
+  .cell.dragging { opacity: 0.4; }
+  .cell.drop-ok { outline: 2px dashed var(--blue); outline-offset: 1px; }
+  .cell.drop-no { outline: 2px dashed var(--red); outline-offset: 1px; cursor: not-allowed; }
+  .mv-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 13px; color: var(--mute); }
+  .mv-row input, .mv-row select { font: inherit; }
   .cell.st-sent { background: rgba(0, 186, 124, 0.12); border-color: var(--green); }
   .cell.st-sent .cm, .cell.st-sent .ci { color: var(--green); }
   .cell.st-missed { background: rgba(244, 33, 46, 0.08); border-color: var(--red); }
@@ -209,6 +215,13 @@
               <button type="button" id="send-now">现在发</button>
               <button type="button" id="clear">清空这格</button>
               <span class="msg" id="ed-msg" role="status"></span>
+            </div>
+            <div class="mv-row" id="mv-row">
+              <span>移到</span>
+              <input type="date" id="mv-date" aria-label="移到哪天">
+              <select id="mv-time" aria-label="移到几点"></select>
+              <button type="button" id="mv-go">移过去</button>
+              <span class="hint">也可以直接在左边表格里把格子拖到别的时间；目标格子有内容就两条互换。</span>
             </div>
           </div>
           <div class="pv-wrap">

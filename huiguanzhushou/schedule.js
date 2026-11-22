@@ -155,6 +155,7 @@ function renderList() {
       b.setAttribute("aria-label", b.title);
       b.append(t, ic, sn);
       b.addEventListener("click", () => select(hm));
+      dragSetup(b, d, hm, it);
       cells.appendChild(b);
     }
     row.appendChild(cells);
@@ -295,6 +296,7 @@ function renderEditor() {
   $("clear").disabled = !has;
   const times = allTimes(d);
   const i = times.indexOf(SEL);
+  renderMoveRow(it, has);
   $("prev").disabled = i <= 0;
   $("next").disabled = i < 0 || i >= times.length - 1;
 
@@ -380,6 +382,120 @@ function renderPreview() {
       img.alt = "";
       media.appendChild(img);
     }
+  }
+}
+
+/* ---------------- 挪时间 ----------------
+ * 把一格的帖子（文字 + 图片 / 视频）挪到另一个时间；目标格子有内容就两条互换。
+ * 已经发出去的不能挪；不能挪到已经过去的时间。
+ * 已经交给 X 定时的：X 那边还按原来的时间排着，挪完要去 X 的「未发送的帖子」里删掉原来那条，这里变回「待发」，再交给 X 一次。 */
+const LOCKED = (it) => hasContent(it) && it.status === "sent";
+function moveCheck(d1, h1, d2, h2) {
+  const a = (SCHED[d1] || {})[h1], b = (SCHED[d2] || {})[h2];
+  if (d1 === d2 && h1 === h2) return "就是这一格";
+  if (!hasContent(a)) return "这一格是空的";
+  if (LOCKED(a)) return "已经发出去的帖子不能挪";
+  if (isPast(d2, h2)) return "不能挪到已经过去的时间";
+  if (hasContent(b) && ["sent", "xsched"].includes(b.status)) return "那一格已经发了或交给 X 定时了，不能和它互换";
+  if (hasContent(b) && isPast(d1, h1)) return "那一格有内容，换过来会落到已经过去的时间";
+  return "";
+}
+async function reown(list, key) {
+  for (const im of list || []) {
+    if (!im.idb) continue;
+    try { const rec = await mediaGet(im.idb); if (rec) await mediaPut(im.idb, { ...rec, owner: key }); } catch (e) { /* 读不到就算了 */ }
+  }
+}
+async function moveSlot(d1, h1, d2, h2) {
+  if (saveTimer) await saveNow();
+  const why = moveCheck(d1, h1, d2, h2);
+  if (why) return { ok: false, reason: why };
+  const a = SCHED[d1][h1], b = (SCHED[d2] || {})[h2];
+  const swap = hasContent(b);
+  const wasX = [a, swap ? b : null].filter((x) => x && x.status === "xsched").length;
+  if (wasX && !confirm("这条已经交给 X 定时了，X 那边还会按原来的时间发。\n\n挪过去以后：\n1. 去 X 的发帖框 → 日历图标 →「未发送的帖子」里，把原来那条删掉\n2. 这里会变回「待发」，再交给 X 定时一次\n\n确定要挪吗？")) return { ok: false, reason: "" };
+  const ka = imgKey(d1, h1), kb = imgKey(d2, h2);
+  const v = await chrome.storage.local.get([ka, kb]);
+  const ma = v[ka] || [], mb = swap ? v[kb] || [] : [];
+  /* 视频记着自己属于哪一格（清理没人要的视频时看这个），先改过去 */
+  await reown(ma, kb);
+  await reown(mb, ka);
+  const fresh = (it) => { const { xAt, ...rest } = it; return { ...rest, status: "" }; };   // 挪过的都当成新的待发
+  (SCHED[d2] ||= {})[h2] = fresh(a);
+  if (swap) SCHED[d1][h1] = fresh(b); else delete SCHED[d1][h1];
+  const put = { schedule: SCHED }, rm = [];
+  if (ma.length) put[kb] = toStore(ma); else rm.push(kb);
+  if (mb.length) put[ka] = toStore(mb); else rm.push(ka);
+  /* 先写新的再删旧的，中途关掉也不会丢视频 */
+  await chrome.storage.local.set(put);
+  const drop = rm.filter((k) => !(k in put));
+  if (drop.length) await chrome.storage.local.remove(drop);
+  delete IMGS[ka]; delete IMGS[kb];
+  await saveNow();
+  return { ok: true, swap, wasX };
+}
+function moveMsg(r, d2, h2) {
+  if (!r.ok) { if (r.reason) { $("ed-msg").textContent = r.reason; $("ed-msg").className = "msg err"; } return; }
+  $("ed-msg").textContent = `已挪到 ${d2.slice(5).replace("-", "/")} ${h2}` + (r.swap ? "（和原来那条互换了）" : "")
+    + (r.wasX ? "。记得去 X 删掉原来定时的那条，再交给 X 一次" : "");
+  $("ed-msg").className = "msg " + (r.wasX ? "err" : "ok");
+}
+let DRAG = null;
+function dragSetup(b, d, hm, it) {
+  const can = hasContent(it) && !LOCKED(it);
+  b.draggable = can;
+  if (can) {
+    b.addEventListener("dragstart", (e) => {
+      DRAG = { d, hm };
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", hm);
+      b.classList.add("dragging");
+    });
+    b.addEventListener("dragend", () => { DRAG = null; b.classList.remove("dragging"); document.querySelectorAll(".drop-ok,.drop-no").forEach((x) => x.classList.remove("drop-ok", "drop-no")); });
+  }
+  b.addEventListener("dragover", (e) => {
+    if (!DRAG) return;
+    e.preventDefault();
+    const bad = moveCheck(DRAG.d, DRAG.hm, d, hm);
+    e.dataTransfer.dropEffect = bad ? "none" : "move";
+    b.classList.toggle("drop-ok", !bad);
+    b.classList.toggle("drop-no", !!bad && !(DRAG.d === d && DRAG.hm === hm));
+    b.title = bad || `挪到 ${hm}`;
+  });
+  b.addEventListener("dragleave", () => b.classList.remove("drop-ok", "drop-no"));
+  b.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    b.classList.remove("drop-ok", "drop-no");
+    if (!DRAG) return;
+    const from = DRAG; DRAG = null;
+    const r = await moveSlot(from.d, from.hm, d, hm);
+    if (r.ok) await select(hm);
+    moveMsg(r, d, hm);
+  });
+}
+function renderMoveRow(it, has) {
+  const row = $("mv-row");
+  row.hidden = !has || LOCKED(it);
+  if (row.hidden) return;
+  if (!$("mv-date").value || $("mv-date").dataset.for !== day() + SEL) { $("mv-date").value = day(); $("mv-date").dataset.for = day() + SEL; fillMoveTimes(); }
+  else if (document.activeElement !== $("mv-time")) fillMoveTimes();
+}
+function fillMoveTimes() {
+  const d2 = $("mv-date").value, sel = $("mv-time"), keep = sel.value;
+  sel.textContent = "";
+  for (const hm of slotTimes()) {
+    if (isPast(d2, hm) || (d2 === day() && hm === SEL)) continue;
+    const it = (SCHED[d2] || {})[hm];
+    const busy = hasContent(it);
+    const o = new Option(hm + (busy ? (["sent", "xsched"].includes(it.status) ? "（已定时，不能换）" : "（有内容，互换）") : "（空）"), hm);
+    o.disabled = busy && ["sent", "xsched"].includes(it.status);
+    sel.add(o);
+  }
+  if ([...sel.options].some((o) => o.value === keep && !o.disabled)) sel.value = keep;
+  else {
+    const free = [...sel.options].filter((o) => !o.disabled && !/互换/.test(o.text));
+    const f = free.find((o) => d2 !== day() || o.value > SEL) || free[0];     // 默认：这格后面最近的空格子
+    if (f) sel.value = f.value;
   }
 }
 
@@ -578,6 +694,17 @@ $("to-x").addEventListener("click", async () => {
 $("send-now").addEventListener("click", async () => {
   await saveNow();
   chrome.runtime.sendMessage({ type: "xfb-sched-open", date: day(), time: SEL });
+});
+$("mv-date").addEventListener("change", fillMoveTimes);
+$("mv-go").addEventListener("click", async () => {
+  const d2 = $("mv-date").value, h2 = $("mv-time").value;
+  if (!d2 || !h2) return;
+  const r = await moveSlot(day(), SEL, d2, h2);
+  if (r.ok) {
+    if (d2 !== day()) $("date").value = d2;
+    await select(h2);
+  }
+  moveMsg(r, d2, h2);
 });
 $("pv-theme").addEventListener("click", () => {
   pvDark = !pvDark;
