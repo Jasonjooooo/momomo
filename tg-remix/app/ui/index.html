@@ -303,6 +303,7 @@ td.del button:hover { background: var(--input); color: var(--err); }
       <button class="btn" id="pClear">全部不选</button>
       <label>标签 <select id="pTag"><option value="">全部</option></select></label>
       <label><input type="checkbox" id="pShowDone"> 显示已排期的</label>
+      <button class="btn" id="pUndoAll" hidden title="只在 TG二创 里取消，回关助手排期表里的不动">已排期的全部取消排期</button>
       <span class="sp"></span><span class="help" id="pCount"></span>
       <button class="btn" id="pReload">刷新</button>
     </div>
@@ -1427,6 +1428,11 @@ function renderPosts() {
         : `⏳ 等时间工作流来取（排 ${it.post.day.slice(5).replace("-", "/")} ${it.post.hm}）` + (st === "waiting" && pWaitWhy() ? "\n⚠ " + pWaitWhy() : "");
       vb.append(ps);
       if (st === "waiting") { const b = document.createElement("button"); b.className = "btn"; b.textContent = "取消"; b.addEventListener("click", async () => { await api.post_cancel(it.id); loadPosts(); }); vb.append(b); }
+      if (st === "done") {
+        const b = document.createElement("button"); b.className = "btn"; b.textContent = "取消排期（可以重新选）";
+        b.title = "只在 TG二创 里取消，回关助手排期表里那条不动";
+        b.addEventListener("click", async () => { await api.post_cancel(it.id); loadPosts(); }); vb.append(b);
+      }
     }
     card.append(th, vb);
     g.append(card);
@@ -1451,7 +1457,14 @@ $("#pAuto").addEventListener("click", () => { pSel = new Set(pItems.filter((x) =
 $("#pClear").addEventListener("click", () => { pSel.clear(); renderPosts(); renderPlan(); });
 $("#pReload").addEventListener("click", loadPosts);
 $("#pTag").addEventListener("change", renderPosts);
-$("#pShowDone").addEventListener("change", renderPosts);
+$("#pShowDone").addEventListener("change", () => { $("#pUndoAll").hidden = !$("#pShowDone").checked; renderPosts(); });
+$("#pUndoAll").addEventListener("click", async () => {
+  const done = pItems.filter((x) => x.post && x.post.status === "done");
+  if (!done.length) return;
+  if (!confirm(`把 ${done.length} 条「已放进排期表」的取消排期？\n只在 TG二创 里取消，变回可以选的；回关助手排期表里的那些不会删。`)) return;
+  for (const it of done) await api.post_cancel(it.id);
+  loadPosts();
+});
 $("#pPrepare").addEventListener("click", async () => {
   const r = await api.post_prepare();
   if (!r.ok) return toast(r.error);
