@@ -86,16 +86,37 @@ def ollama_ok(c: dict) -> tuple[bool, str]:
     return True, ""
 
 
+def _ollama_err(e: Exception) -> str:
+    """Ollama 出错时把它自己说的原因读出来（HTTP 400 之类光看状态码看不出问题）"""
+    if isinstance(e, urllib.error.HTTPError):
+        try:
+            body = e.read().decode("utf-8", "replace")
+            msg = (json.loads(body).get("error") if body.strip().startswith("{") else body) or ""
+        except Exception:  # noqa: BLE001
+            msg = ""
+        return f"HTTP {e.code}" + (f"：{str(msg).strip()[:200]}" if msg else "")
+    return str(e)
+
+
 def _ollama(c: dict, prompt: str, images: list[str] | None = None, timeout: int = 240) -> str:
+    """先用 /api/chat（看图模型推荐的接口），不行再用 /api/generate；都不行把 Ollama 说的原因带出来"""
     base = str(c.get("ollama_url") or "http://127.0.0.1:11434").rstrip("/")
-    body = {"model": c.get("ollama_model"), "prompt": prompt, "stream": False, "options": {"temperature": 0.6}}
+    msg = {"role": "user", "content": prompt}
     if images:
-        body["images"] = images
-    try:
-        data = _http(base + "/api/generate", body, {}, timeout)
-    except Exception as e:  # noqa: BLE001
-        raise CaptionError(f"本机模型没回应：{e}") from e
-    return str(data.get("response") or "").strip()
+        msg["images"] = images
+    tries = [("/api/chat", {"model": c.get("ollama_model"), "messages": [msg], "stream": False, "options": {"temperature": 0.6}}),
+             ("/api/generate", {"model": c.get("ollama_model"), "prompt": prompt, "stream": False, "options": {"temperature": 0.6},
+                                **({"images": images} if images else {})})]
+    errs = []
+    for path, body in tries:
+        try:
+            data = _http(base + path, body, {}, timeout)
+        except Exception as e:  # noqa: BLE001
+            errs.append(_ollama_err(e))
+            continue
+        text = (data.get("message") or {}).get("content") if path == "/api/chat" else data.get("response")
+        return str(text or "").strip()
+    raise CaptionError("本机模型没回应：" + errs[-1])
 
 
 def describe(path: Path, duration: float, c: dict) -> str:
@@ -105,7 +126,13 @@ def describe(path: Path, duration: float, c: dict) -> str:
         raise CaptionError("取不到画面")
     prompt = (f"这是一条短视频按时间顺序截的 {len(imgs)} 张图。请用 2 到 3 句中文，客观描述视频里发生了什么，"
               "重点写最有看点、最出乎意料的地方。只描述看到的内容，不要猜测，不要评价，不要提到「截图」「图片」。")
-    text = _ollama(c, prompt, imgs)
+    try:
+        text = _ollama(c, prompt, imgs)
+    except CaptionError:
+        imgs = _jpeg_frames(path, duration, n=2, width=336)      # 图少一点、小一点再试一次
+        if not imgs:
+            raise
+        text = _ollama(c, prompt.replace("4 张", f"{len(imgs)} 张"), imgs)
     if len(text) < 6:
         raise CaptionError("本机模型没看出内容")
     return text[:400]
