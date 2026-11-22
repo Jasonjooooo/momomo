@@ -773,17 +773,71 @@ class Api:
                                                           "ids": [it["id"] for it in chosen]}, ensure_ascii=False), encoding="utf-8")
         log(f"✅ 准备好 {len(chosen)} 条，去「发帖」页看一眼，点「铺进排期表」" + ("" if len(chosen) >= n else f"（不够 {n} 条，素材再多找一些）"))
 
+    def _learned_path(self) -> Path:
+        return self._root / "文案范例_你改过的.json"
+
+    def _examples(self, cfg: dict) -> list[str]:
+        """写文案时给 AI 看的范例：你在「AI 写文案」里填的 + 你在发帖页改过才发的（最近 15 条）"""
+        typed = [x.strip(" -·•\t") for x in str((cfg.get("caption") or {}).get("examples") or "").splitlines()]
+        try:
+            learned = json.loads(self._learned_path().read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            learned = []
+        out = []
+        for x in [t for t in typed if len(t) >= 4] + list(reversed(learned))[:15]:
+            if x not in out:
+                out.append(x)
+        return out[:20]
+
+    def _learn(self, meta: dict, text: str) -> None:
+        """你把 AI 写的文案改了再发：改过的这句记下来当范例，下次照着你的口吻写"""
+        ai = meta.get("caption_ai") or {}
+        text = (text or "").strip()
+        if not ai or len(text) < 4 or text == (ai.get("text") or "").strip() or text in (ai.get("alts") or []):
+            return
+        try:
+            p = self._learned_path()
+            try:
+                lst = json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                lst = []
+            if text not in lst:
+                lst = (lst + [text])[-30:]
+                p.write_text(json.dumps(lst, ensure_ascii=False, indent=1), encoding="utf-8")
+        except OSError:
+            pass
+
+    def post_use_alt(self, item_id: str, idx: int) -> dict:
+        """换成另外一条 AI 写的文案（原来那条放回备选里）"""
+        try:
+            f = self._meta_path(item_id)
+            mf = f.with_suffix(".json")
+            m = json.loads(mf.read_text(encoding="utf-8"))
+            ai = m.get("caption_ai") or {}
+            alts = list(ai.get("alts") or [])
+            if not 0 <= int(idx) < len(alts):
+                return {"ok": False, "error": "没有这一条"}
+            new = alts.pop(int(idx))
+            if (ai.get("text") or "").strip():
+                alts.insert(0, ai["text"])
+            ai.update(text=new, alts=alts)
+            m["caption"], m["caption_ai"] = new, ai
+            mf.write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")
+            return {"ok": True, "caption": new, "alts": alts}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": str(e) if isinstance(e, UserError) else _friendly(e)}
+
     def _caption_one(self, it: dict, cfg: dict) -> dict:
         from tgremix import caption as cap
 
         m, f = it["meta"], it["f"]
         try:
-            r = cap.write(f, float(m.get("duration") or 0), m.get("text") or m.get("title") or "", cfg)
+            r = cap.write(f, float(m.get("duration") or 0), m.get("text") or m.get("title") or "", cfg, self._examples(cfg))
         except cap.CaptionError as e:
             log(f"    ⚠️ {f.name} 文案没写成：{e}（先用原帖文字）")
             return {"ok": False, "error": str(e)}
         m["caption"] = r["caption"]
-        m["caption_ai"] = {"kind": r["kind"], "desc": r["desc"], "how": r["how"]}
+        m["caption_ai"] = {"kind": r["kind"], "desc": r["desc"], "how": r["how"], "text": r["caption"], "alts": r.get("alts") or []}
         f.with_suffix(".json").write_text(json.dumps(m, ensure_ascii=False, indent=1), encoding="utf-8")
         log(f"    ✍️ {f.name}【{r['kind'] or '?'}】{r['caption']}")
         return {"ok": True, **r}
@@ -930,6 +984,7 @@ class Api:
                     meta_f = f.with_suffix(".json")
                     try:
                         meta = json.loads(meta_f.read_text(encoding="utf-8"))
+                        self._learn(meta, text)
                         meta["caption"] = text
                         meta_f.write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
                     except (OSError, ValueError):

@@ -168,6 +168,8 @@ td.del button:hover { background: var(--input); color: var(--err); }
 .toast { position: fixed; right: 24px; bottom: 24px; background: var(--fg); color: var(--bg); padding: 10px 16px;
   border-radius: 10px; opacity: 0; transition: opacity .2s; pointer-events: none; }
 .toast.show { opacity: .92; }
+.alts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.alts .btn.alt { font-size: 12px; padding: 4px 8px; text-align: left; white-space: normal; line-height: 1.4; max-width: 100%; }
 </style>
 </head>
 <body>
@@ -320,6 +322,9 @@ td.del button:hover { background: var(--input); color: var(--err); }
     <div class="row"><label>DeepSeek 模型</label><input type="text" data-path="caption.model" placeholder="deepseek-chat" style="max-width:220px">
       <span class="help">空着就用 AI 解说里填的</span></div>
     <div class="row"><label>开着</label><label style="width:auto;color:var(--fg)"><input type="checkbox" data-path="caption.on"> 准备时自动写文案（关掉就用原帖文字）</label></div>
+    <div class="row" style="align-items:flex-start"><label>我的范例</label>
+      <textarea data-path="caption.examples" rows="6" style="flex:1;min-width:0" placeholder="一行一句你觉得写得好的文案（你账号上数据好的、别人写得好的都行），AI 会学这个口吻。&#10;比如：&#10;这大哥是懂省事的，最后那一下我没看懂&#10;工地上的人是真不怕啊"></textarea></div>
+    <p class="help">另外：你在发帖页把 AI 写的文案改了再铺进排期表，改过的那句会自动记下来当范例（最近 15 条），越用越像你写的。</p>
     <details><summary class="help" style="cursor:pointer">怎么装本机看图模型（一次就好）</summary>
       <ol class="help" style="margin:6px 0 0;padding-left:20px;line-height:1.9">
         <li>打开 <a data-url="https://ollama.com/download">ollama.com/download</a> 下载 Ollama（Mac 版），装好后打开它（菜单栏会出现一只羊驼）</li>
@@ -1410,6 +1415,20 @@ function renderPosts() {
       clearTimeout(pCapTimer[it.id]); pCapTimer[it.id] = setTimeout(() => api.post_caption(it.id, ta.value), 600);
     });
     vb.append(meta, why, ta, cnt);
+    if (!it.post && it.ai && (it.ai.alts || []).length) {
+      const al = document.createElement("div"); al.className = "alts";
+      al.append(Object.assign(document.createElement("span"), { className: "help", textContent: "AI 另外写的：" }));
+      it.ai.alts.forEach((t, k) => {
+        const b = document.createElement("button"); b.className = "btn alt"; b.textContent = t; b.title = "换成这一条";
+        b.addEventListener("click", async () => {
+          const r = await api.post_use_alt(it.id, k);
+          if (!r.ok) return toast(r.error);
+          it.caption = r.caption; it.ai.alts = r.alts; renderPosts(); renderPlan();
+        });
+        al.append(b);
+      });
+      vb.append(al);
+    }
     if (!it.out && !it.post) {
       const rb = document.createElement("button"); rb.className = "btn"; rb.textContent = "✨ 换个文案"; rb.style.alignSelf = "flex-start";
       rb.addEventListener("click", async () => {
@@ -1417,7 +1436,7 @@ function renderPosts() {
         const r = await api.post_recaption(it.id);
         rb.disabled = false; rb.textContent = "✨ 换个文案";
         if (!r.ok) return toast("文案没写成：" + r.error);
-        it.caption = r.caption; it.ai = { kind: r.kind, how: r.how, desc: r.desc }; ta.value = r.caption; upd(); renderPlan();
+        it.caption = r.caption; it.ai = { kind: r.kind, how: r.how, desc: r.desc, text: r.caption, alts: r.alts || [] }; renderPosts(); renderPlan(); return;
         meta.firstChild && meta.firstChild.className === "tg" && it.ai.kind && (meta.firstChild.textContent = it.ai.kind);
       });
       vb.append(rb);

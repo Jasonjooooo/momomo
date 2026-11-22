@@ -98,14 +98,15 @@ def _ollama_err(e: Exception) -> str:
     return str(e)
 
 
-def _ollama(c: dict, prompt: str, images: list[str] | None = None, timeout: int = 240) -> str:
+def _ollama(c: dict, prompt: str, images: list[str] | None = None, timeout: int = 360) -> str:
     """先用 /api/chat（看图模型推荐的接口），不行再用 /api/generate；都不行把 Ollama 说的原因带出来"""
     base = str(c.get("ollama_url") or "http://127.0.0.1:11434").rstrip("/")
     msg = {"role": "user", "content": prompt}
     if images:
         msg["images"] = images
-    tries = [("/api/chat", {"model": c.get("ollama_model"), "messages": [msg], "stream": False, "options": {"temperature": 0.6}}),
-             ("/api/generate", {"model": c.get("ollama_model"), "prompt": prompt, "stream": False, "options": {"temperature": 0.6},
+    opts = {"temperature": 0.3 if images else 0.8, "num_ctx": 8192}
+    tries = [("/api/chat", {"model": c.get("ollama_model"), "messages": [msg], "stream": False, "options": opts}),
+             ("/api/generate", {"model": c.get("ollama_model"), "prompt": prompt, "stream": False, "options": opts,
                                 **({"images": images} if images else {})})]
     errs = []
     for path, body in tries:
@@ -120,61 +121,83 @@ def _ollama(c: dict, prompt: str, images: list[str] | None = None, timeout: int 
 
 
 def describe(path: Path, duration: float, c: dict) -> str:
-    """本机看图模型：这条视频里发生了什么（2–3 句，客观）"""
-    imgs = _jpeg_frames(path, duration)
+    """本机看图模型：按时间顺序看 8 张图，说清楚发生了什么、看点在哪、画面上写了什么字、是什么情绪"""
+    n = 8 if duration >= 6 else 5
+    imgs = _jpeg_frames(path, duration, n=n, width=560)
     if not imgs:
         raise CaptionError("取不到画面")
-    prompt = (f"这是一条短视频按时间顺序截的 {len(imgs)} 张图。请用 2 到 3 句中文，客观描述视频里发生了什么，"
-              "重点写最有看点、最出乎意料的地方。只描述看到的内容，不要猜测，不要评价，不要提到「截图」「图片」。")
+    prompt = (
+        f"下面是一条短视频从头到尾按时间顺序截的 {len(imgs)} 张图（第 1 张最早）。请用中文回答，每项一两句，只写看到的，不要编：\n"
+        "1. 场景和人物：在哪、有谁（大概年龄、穿着、身份感）\n"
+        "2. 经过：按时间顺序发生了什么，前后有什么变化\n"
+        "3. 看点：整条视频最让人想看完的一刻是什么——反转、笑点、危险、离谱、厉害的地方，具体到动作\n"
+        "4. 画面上的字：字幕、标题、牌子上的字，原样抄下来；没有就写「无」\n"
+        "5. 情绪：人物的表情和整体氛围（好笑 / 尴尬 / 紧张 / 震惊 / 治愈……）\n"
+        "不要提到「截图」「图片」「第几张」。"
+    )
     try:
         text = _ollama(c, prompt, imgs)
     except CaptionError:
-        imgs = _jpeg_frames(path, duration, n=2, width=336)      # 图少一点、小一点再试一次
+        imgs = _jpeg_frames(path, duration, n=3, width=448)      # 图少一点、小一点再试一次
         if not imgs:
             raise
-        text = _ollama(c, prompt.replace("4 张", f"{len(imgs)} 张"), imgs)
+        text = _ollama(c, prompt.replace(f"截的 {n} 张", f"截的 {len(imgs)} 张"), imgs)
     if len(text) < 6:
         raise CaptionError("本机模型没看出内容")
-    return text[:400]
+    return text[:900]
 
 
 # ---------------------------------------------------------------- 写文案
-def _prompt(desc: str, post_text: str) -> str:
+def _prompt(desc: str, post_text: str, examples: list[str] | None = None) -> str:
     kinds = "\n".join(f"- {v}" for v in KINDS.values())
+    ex = [e.strip() for e in (examples or []) if e and e.strip()][:20]
     return (
-        "你在给一个中文 X（推特）账号写短视频的发帖文案。\n"
-        + (f"视频内容：{desc}\n" if desc else "")
-        + (f"原帖文字（可能是广告或乱码，只作参考）：{_clean(post_text)[:300]}\n" if _clean(post_text) else "")
-        + "\n先判断这条视频最适合下面哪一类，再用这一类的口吻写一句文案：\n" + kinds + "\n\n"
-        "要求：\n1. 一句话，15 到 40 个字，口语化，让人想点开看完\n2. 带一点悬念或情绪，不要把结局说破\n"
-        "3. 不要话题标签（#），不要 @，不要链接，不要提来源、搬运、原作者\n4. 最多 1 个表情符号，也可以不用\n"
-        "5. 不要出现「视频」「这个视频」开头\n"
-        '只输出一行 JSON：{"kind": "六类之一", "caption": "文案"}'
+        "你是一个很会写推文的中文 X（推特）博主，在给一条短视频配一句发帖文案。\n\n"
+        + (f"【视频内容】\n{desc}\n\n" if desc else "")
+        + (f"【原帖文字】（可能是广告或乱码，只作参考）{_clean(post_text)[:300]}\n\n" if _clean(post_text) else "")
+        + ("【这个账号以前的文案】（学它的口吻、用词、长短和节奏，不要照抄内容）\n" + "\n".join(f"- {e}" for e in ex) + "\n\n" if ex else "")
+        + "【先判断类型】最适合下面哪一类：\n" + kinds + "\n\n"
+        "【写 3 条，角度各不一样】比如：一条抓最大的看点设悬念，一条站在围观网友的角度说一句大实话，一条带点反差或调侃。\n"
+        "好文案的样子：像真人刷到这条视频随口说的一句话；具体（说到视频里的人、动作、细节），不空泛；让人忍不住点开看完。\n"
+        "不要写成这样：「太震撼了」「这也太离谱了吧」「看完沉默了」这类放到哪条视频都能用的空话；"
+        "不要用「家人们」「绝绝子」「yyds」；不要以「视频」「这个视频」开头；不要把结局说破。\n"
+        "硬性要求：每条 10 到 40 个字；不要话题标签（#）、@、链接；不要提来源、搬运、原作者；最多 1 个表情符号，也可以不用。\n\n"
+        "最后从 3 条里挑你觉得最好的一条。\n"
+        '只输出一行 JSON：{"kind": "六类之一", "captions": ["第一条", "第二条", "第三条"], "best": 最好那条的序号0到2}'
     )
 
 
-def _parse(text: str) -> tuple[str, str]:
+def _tidy(cap: str) -> str:
+    cap = re.sub(r"[#＃]\S+|@\w+|https?://\S+", "", str(cap or "")).strip().strip("「」\"“”")
+    return re.sub(r"\s+", " ", cap)
+
+
+def _parse(text: str) -> tuple[str, list[str], int]:
+    """→ (类型, 3 条文案, 最好那条的序号)"""
     m = re.search(r"\{.*\}", text or "", re.S)
-    kind, cap = "", ""
+    kind, caps, best = "", [], 0
     if m:
         try:
             d = json.loads(m.group(0))
-            kind, cap = str(d.get("kind") or ""), str(d.get("caption") or "")
-        except ValueError:
+            kind = str(d.get("kind") or "")
+            caps = d.get("captions") or ([d["caption"]] if d.get("caption") else [])
+            best = int(d.get("best") or 0)
+        except (ValueError, TypeError, KeyError):
             pass
-    if not cap:
-        cap = (text or "").strip().splitlines()[0] if (text or "").strip() else ""
-    cap = re.sub(r"[#＃]\S+|@\w+|https?://\S+", "", cap).strip().strip("「」\"“”")
+    caps = [c for c in (_tidy(x) for x in caps if isinstance(x, str)) if len(c) >= 4]
+    if not caps and (text or "").strip():
+        caps = [c for c in (_tidy(x) for x in text.strip().splitlines()[:3]) if len(c) >= 4]
     if kind not in KINDS:
         kind = next((k for k in KINDS if k in (text or "")), "")
-    return kind, cap
+    best = best if 0 <= best < len(caps) else 0
+    return kind, caps, best
 
 
 def _deepseek(c: dict, prompt: str) -> str:
     key = str(c.get("api_key") or "").strip()
     base = str(c.get("api_base") or "https://api.deepseek.com").rstrip("/")
     try:
-        data = _http(base + "/chat/completions", {"model": c.get("model") or "deepseek-chat", "temperature": 1.0, "max_tokens": 200,
+        data = _http(base + "/chat/completions", {"model": c.get("model") or "deepseek-chat", "temperature": 1.0, "max_tokens": 600,
                                                   "messages": [{"role": "user", "content": prompt}]},
                      {"Authorization": f"Bearer {key}"}, 60)
         return data["choices"][0]["message"]["content"]
@@ -188,8 +211,8 @@ def _deepseek(c: dict, prompt: str) -> str:
         raise CaptionError(f"连不上 DeepSeek：{e}") from e
 
 
-def write(path: Path, duration: float, post_text: str, cfg: dict) -> dict:
-    """返回 {caption, kind, desc, how}；how 说明是怎么写出来的"""
+def write(path: Path, duration: float, post_text: str, cfg: dict, examples: list[str] | None = None) -> dict:
+    """返回 {caption, alts, kind, desc, how}：caption 是挑出来的那条，alts 是另外几条；how 说明是怎么写出来的"""
     c = settings(cfg)
     has_key = bool(str(c.get("api_key") or "").strip())
     ok, why = ollama_ok(c)
@@ -203,15 +226,18 @@ def write(path: Path, duration: float, post_text: str, cfg: dict) -> dict:
         notes.append(why)
     if not desc and not _clean(post_text):
         raise CaptionError("；".join(notes) or "没有画面描述也没有原帖文字，写不出来")
-    prompt = _prompt(desc, post_text)
+    prompt = _prompt(desc, post_text, examples)
     if has_key:
-        kind, cap = _parse(_deepseek(c, prompt))
+        kind, caps, best = _parse(_deepseek(c, prompt))
         how = "本机看画面 + DeepSeek 写" if desc else "DeepSeek 看原帖文字写（本机模型没用上：" + "；".join(notes) + "）"
     elif ok:
-        kind, cap = _parse(_ollama(c, prompt))
+        kind, caps, best = _parse(_ollama(c, prompt))
         how = "本机模型看画面并写（没填 DeepSeek key）"
     else:
         raise CaptionError("没填 DeepSeek key，本机模型也用不了：" + "；".join(notes))
-    if len(cap) < 4:
+    if not caps:
         raise CaptionError("AI 没写出有效的文案")
-    return {"caption": cap[:120], "kind": kind, "desc": desc, "how": how}
+    if examples:
+        how += f" · 参考了 {min(len(examples), 20)} 条范例"
+    cap = caps[best][:120]
+    return {"caption": cap, "alts": [x[:120] for k, x in enumerate(caps) if k != best], "kind": kind, "desc": desc, "how": how}
