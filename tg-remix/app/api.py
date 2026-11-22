@@ -240,8 +240,15 @@ class Api:
         self._link_tried = True
         from tgremix import link
 
-        if not link.serve(self, APP_VERSION):
-            log(f"ℹ️ 本机端口 {link.PORT} 被别的程序占了，「X 时间工作流」插件暂时叫不动 TG二创（其他功能不受影响）")
+        if link.serve(self, APP_VERSION, on_late=lambda: log("✅ 端口接上了，「X 时间工作流」插件现在能叫动 TG二创了")):
+            return
+        other = link.who_holds()
+        if other:
+            log(f"⚠️ 另一个 TG二创（{other}）还在后台开着，占着和「X 时间工作流」通信的端口。"
+                "请把多出来的那个退掉（程序坞里右键 TG二创 → 退出，或活动监视器里结束多余的 TG二创），这边会自动接上")
+        else:
+            log(f"⚠️ 本机端口 {link.PORT} 被别的程序占了，「X 时间工作流」插件暂时叫不动 TG二创。"
+                f"在终端运行 lsof -nP -iTCP:{link.PORT} -sTCP:LISTEN 可以看到是谁；它退出后这边会自动接上")
 
     def save_config(self, data: dict) -> dict:
         try:

@@ -172,20 +172,69 @@ def _loop(api, version: str, sock: socket.socket) -> None:
         threading.Thread(target=_client, args=(api, version, conn), daemon=True).start()
 
 
-def serve(api, version: str) -> bool:
-    """开接口（只开一次）。端口被占了返回 False"""
+def _bind() -> socket.socket | None:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)   # 刚重启时端口还在 TIME_WAIT 也能用
+    try:
+        s.bind(("127.0.0.1", PORT))
+        s.listen(8)
+    except OSError:
+        s.close()
+        return None
+    return s
+
+
+def who_holds() -> str:
+    """端口被占时问一下占着的是谁：另一个 TG二创 会回版本号；别的程序返回空"""
+    try:
+        with socket.create_connection(("127.0.0.1", PORT), timeout=2) as c:
+            c.settimeout(2)
+            c.sendall((f"GET /status HTTP/1.1\r\nHost: 127.0.0.1:{PORT}\r\n"
+                       f"Origin: chrome-extension://{WORKFLOW_ID}\r\nConnection: close\r\n\r\n").encode("ascii"))
+            buf = b""
+            while len(buf) < 65536:
+                chunk = c.recv(4096)
+                if not chunk:
+                    break
+                buf += chunk
+        body = buf.partition(b"\r\n\r\n")[2]
+        return str(json.loads(body.decode("utf-8")).get("version") or "")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def serve(api, version: str, on_late=None) -> bool:
+    """开接口（只开一次）。端口被占了返回 False，并在后台每 15 秒再试一次，
+    等占着的程序退出就自动接上（接上时调用 on_late()）"""
     global _sock
     with _lock:
         if _sock is not None:
             return True
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)   # 刚重启时端口还在 TIME_WAIT 也能用
-        try:
-            s.bind(("127.0.0.1", PORT))
-            s.listen(8)
-        except OSError:
-            s.close()
-            return False
-        _sock = s
-        threading.Thread(target=_loop, args=(api, version, s), daemon=True, name="tgremix-link").start()
-        return True
+        s = _bind()
+        if s is not None:
+            _sock = s
+            threading.Thread(target=_loop, args=(api, version, s), daemon=True, name="tgremix-link").start()
+            return True
+
+    def retry():
+        global _sock
+        import time
+        while True:
+            time.sleep(15)
+            with _lock:
+                if _sock is not None:
+                    return
+                s2 = _bind()
+                if s2 is None:
+                    continue
+                _sock = s2
+                threading.Thread(target=_loop, args=(api, version, s2), daemon=True, name="tgremix-link").start()
+            if on_late:
+                try:
+                    on_late()
+                except Exception:  # noqa: BLE001
+                    pass
+            return
+
+    threading.Thread(target=retry, daemon=True, name="tgremix-link-retry").start()
+    return False
