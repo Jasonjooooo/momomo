@@ -941,6 +941,52 @@ class Api:
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "error": str(e) if isinstance(e, UserError) else _friendly(e)}
 
+    def post_delete(self, ids: list) -> dict:
+        """删掉没排期的成品：视频和 .json 挪进数据文件夹里的「已删除的成品」（7 天后自动清掉，想要回来可以去那里拿）。
+        已经排进队列 / 放进排期表的不删（先取消排期）"""
+        import hashlib
+        import shutil
+
+        bin_root = self._root / "已删除的成品"
+        cut = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        if bin_root.exists():
+            for d in bin_root.iterdir():
+                if d.is_dir() and d.name < cut:
+                    shutil.rmtree(d, ignore_errors=True)
+        dest = bin_root / datetime.now().strftime("%Y-%m-%d")
+        done, skipped, errors = [], 0, []
+        for item_id in ids or []:
+            try:
+                f = self._meta_path(str(item_id))
+                mf = f.with_suffix(".json")
+                try:
+                    meta = json.loads(mf.read_text(encoding="utf-8"))
+                except (OSError, ValueError):
+                    meta = {}
+                post = meta.get("post") or {}
+                if post and post.get("status") != "failed":
+                    skipped += 1
+                    continue
+                dest.mkdir(parents=True, exist_ok=True)
+                stem = f.stem
+                while (dest / f"{stem}.mp4").exists():
+                    stem += "_"
+                shutil.move(str(f), str(dest / f"{stem}.mp4"))
+                if mf.exists():
+                    shutil.move(str(mf), str(dest / f"{stem}.json"))
+                t = self._root / ".thumbs" / (hashlib.md5(str(f).encode("utf-8")).hexdigest() + ".jpg")
+                t.unlink(missing_ok=True)
+                done.append(str(item_id))
+            except Exception as e:  # noqa: BLE001
+                errors.append(str(e) if isinstance(e, UserError) else _friendly(e))
+        if done:
+            r = self._ready()
+            if r.get("ids"):
+                r["ids"] = [i for i in r["ids"] if i not in done]
+                (self._root / "待发.json").write_text(json.dumps(r, ensure_ascii=False), encoding="utf-8")
+            log(f"🗑 发帖页删了 {len(done)} 条成品（在「已删除的成品」里放 7 天）")
+        return {"ok": not errors or bool(done), "deleted": len(done), "skipped": skipped, "error": "；".join(errors[:3])}
+
     def post_cancel(self, item_id: str) -> dict:
         try:
             f = self._meta_path(item_id)

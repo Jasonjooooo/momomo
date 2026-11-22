@@ -301,6 +301,7 @@ td.del button:hover { background: var(--input); color: var(--err); }
       <button class="btn" id="pPrepare">重新准备</button>
       <button class="btn" id="pAuto">只选准备好的</button>
       <button class="btn" id="pClear">全部不选</button>
+      <button class="btn" id="pDelSel" title="删掉选中的成品（已排期的不会删）">🗑 删除选中的</button>
       <label>标签 <select id="pTag"><option value="">全部</option></select></label>
       <label><input type="checkbox" id="pShowDone"> 显示已排期的</label>
       <button class="btn" id="pUndoAll" hidden title="只在 TG二创 里取消，回关助手排期表里的不动">已排期的全部取消排期</button>
@@ -1421,6 +1422,12 @@ function renderPosts() {
       });
       vb.append(rb);
     }
+    if (!it.post || it.post.status === "failed") {
+      const db = document.createElement("button"); db.className = "btn"; db.textContent = "🗑 删除"; db.style.alignSelf = "flex-start";
+      db.title = "删掉这条成品（放进数据文件夹里的「已删除的成品」，7 天后自动清掉）";
+      db.addEventListener("click", () => pDelete([it.id]));
+      vb.append(db);
+    }
     if (it.post) {
       const ps = document.createElement("div"); const st = it.post.status;
       ps.style.whiteSpace = "pre-line"; ps.className = "ps " + (st === "done" ? "ok" : st === "failed" ? "bad" : "wait");
@@ -1455,6 +1462,17 @@ function renderPlan() {
 }
 $("#pAuto").addEventListener("click", () => { pSel = new Set(pItems.filter((x) => x.ready && !x.out && !x.post).map((x) => x.id)); renderPosts(); renderPlan(); });
 $("#pClear").addEventListener("click", () => { pSel.clear(); renderPosts(); renderPlan(); });
+async function pDelete(ids) {
+  if (!ids.length) return toast("先选上要删的视频");
+  if (!confirm((ids.length === 1 ? "删掉这条成品？" : `删掉选中的 ${ids.length} 条成品？`)
+    + "\n会放进数据文件夹里的「已删除的成品」，7 天内想要回来可以去那里拿。")) return;
+  const r = await api.post_delete(ids);
+  ids.forEach((id) => pSel.delete(id));
+  toast(r.deleted ? `删了 ${r.deleted} 条` + (r.skipped ? `，${r.skipped} 条已排期的没删（先取消排期）` : "") + (r.error ? `；${r.error}` : "")
+    : (r.error || "没删：已排期的要先取消排期"));
+  loadPosts();
+}
+$("#pDelSel").addEventListener("click", () => pDelete([...pSel]));
 $("#pReload").addEventListener("click", loadPosts);
 $("#pTag").addEventListener("change", renderPosts);
 $("#pShowDone").addEventListener("change", () => { $("#pUndoAll").hidden = !$("#pShowDone").checked; renderPosts(); });
