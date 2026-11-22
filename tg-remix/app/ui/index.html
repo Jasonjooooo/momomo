@@ -1350,12 +1350,20 @@ function pDays() {
   }
   sel.value = sel.options[new Date().getHours() < 8 ? 0 : 1].value;
 }
+let pPump = {};
+function pWaitWhy() {
+  // 等太久时说清楚卡在哪
+  if (pPump.note) return "卡住了：" + pPump.note;
+  if (pPump.seen_ago < 0) return "时间工作流还没来取过：检查 Chrome 开着、「X 时间工作流」是 1.6.1 以上，它的「TG二创」那行显示已连接";
+  if (pPump.seen_ago > 150) return `时间工作流 ${Math.round(pPump.seen_ago / 60)} 分钟没来取了：Chrome 关了，或插件被停用了`;
+  return "";
+}
 async function loadPosts() {
   pDays();
   $("#pCount").textContent = "读取中…";
   const r = await api.post_list();
   if (!r.ok) { $("#pCount").textContent = "读取失败：" + r.error; return; }
-  pItems = r.items;
+  pItems = r.items; pPump = r.pump || {};
   const tags = [...new Set(pItems.flatMap((x) => [...(x.tags || []), x.channel]).filter(Boolean))];
   const ts = $("#pTag"), cur = ts.value; ts.length = 1; tags.forEach((t) => ts.append(new Option(t, t))); ts.value = tags.includes(cur) ? cur : "";
   if (!pInit) { pInit = true; pSel = new Set(pItems.filter((x) => x.ready && !x.out && !x.post).map((x) => x.id)); }
@@ -1414,9 +1422,9 @@ function renderPosts() {
     }
     if (it.post) {
       const ps = document.createElement("div"); const st = it.post.status;
-      ps.className = "ps " + (st === "done" ? "ok" : st === "failed" ? "bad" : "wait");
+      ps.style.whiteSpace = "pre-line"; ps.className = "ps " + (st === "done" ? "ok" : st === "failed" ? "bad" : "wait");
       ps.textContent = st === "done" ? `✓ 已放进排期表 ${it.post.day.slice(5).replace("-", "/")} ${it.post.hm}` : st === "failed" ? `⚠ 没放进去：${it.post.error || ""}（可以重新选）`
-        : `⏳ 等时间工作流来取（排 ${it.post.day.slice(5).replace("-", "/")} ${it.post.hm}）`;
+        : `⏳ 等时间工作流来取（排 ${it.post.day.slice(5).replace("-", "/")} ${it.post.hm}）` + (st === "waiting" && pWaitWhy() ? "\n⚠ " + pWaitWhy() : "");
       vb.append(ps);
       if (st === "waiting") { const b = document.createElement("button"); b.className = "btn"; b.textContent = "取消"; b.addEventListener("click", async () => { await api.post_cancel(it.id); loadPosts(); }); vb.append(b); }
     }

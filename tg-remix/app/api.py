@@ -826,7 +826,10 @@ class Api:
                             "size_mb": round(f.stat().st_size / 1048576, 1), "caption": self._caption(m), "post": m.get("post"),
                             "ready": it["id"] in ready, "ai": m.get("caption_ai") or None, "thumb": self._thumb(f)})
             out.sort(key=lambda x: (x["out"], bool(x["post"]), -x["score"]))
-            return {"ok": True, "items": out}
+            seen = getattr(self, "_postq_seen", 0)
+            note, note_at = getattr(self, "_postq_note", ("", 0))
+            return {"ok": True, "items": out, "pump": {"seen_ago": int(time.time() - seen) if seen else -1,
+                                                      "note": note if note and time.time() - note_at < 300 else ""}}
         except Exception as e:  # noqa: BLE001
             return {"ok": False, "error": _friendly(e)}
 

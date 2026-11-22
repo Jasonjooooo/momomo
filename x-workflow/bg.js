@@ -141,8 +141,11 @@ async function postPump() {
   try {
     const q = await tgFetch("/postq").catch(() => null);
     if (!q || !q.ok || !q.jobs || !q.jobs.length) return;
+    const note = (reason) => tgFetch("/postq/note", { reason }).catch(() => {});
     const { hgId } = await chrome.storage.local.get(["hgId"]);
-    if (!hgId) return;                                     // 回关助手还没连上：先放着，连上了再送
+    if (!hgId) { note("回关助手还没连上时间工作流：打开一次 x.com 页面（回关助手在那里运行），或把回关助手更新到带发帖连接的 2.28.1"); return; }
+    const ping = await hgCall({ app: "时间工作流", type: "wf-pull" });
+    if (!ping || !ping.ok) { note("回关助手没回应：" + ((ping && ping.reason) || "") + "。在 chrome://extensions 里确认回关助手开着，再打开一次 x.com"); return; }
     const toX = new Set();                                 // 放好以后要交给 X 定时的日子
     let okN = 0;
     for (const j of q.jobs) {

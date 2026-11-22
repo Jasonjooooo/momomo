@@ -93,6 +93,7 @@ def handle(api, version: str, method: str, path: str, headers: dict, body: bytes
                      "status": p["status"], "progress": p["progress"], "lines": p["lines"][-6:],
                      "postq": len(api._postq_waiting())}
     if method == "GET" and path == "/postq":
+        api._postq_seen = __import__("time").time()          # 时间工作流最近一次来看队列的时间（发帖页显示用）
         return 200, {"ok": True, "jobs": api._postq_waiting()}
     if method != "POST":
         return (404 if path not in ("/run", "/stop") else 405), {"ok": False, "error": "not found"}
@@ -115,6 +116,9 @@ def handle(api, version: str, method: str, path: str, headers: dict, body: bytes
         return 200, r
     if path == "/stop":
         return 200, api.stop()
+    if path == "/postq/note":                                   # 时间工作流说一下为什么还没取走（比如回关助手没连上）
+        api._postq_note = (str(data.get("reason") or "")[:300], __import__("time").time())
+        return 200, {"ok": True}
     if path == "/postq/done":
         return 200, api._postq_done(str(data.get("qid") or ""), bool(data.get("ok")), str(data.get("day") or ""),
                                      str(data.get("hm") or ""), str(data.get("error") or "")[:300])
