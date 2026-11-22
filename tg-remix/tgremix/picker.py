@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import math
 import re
+import zlib
 import shutil
 import statistics
 import subprocess
@@ -216,7 +217,7 @@ def collect_inbox(cfg: dict, dl_root: Path) -> int:
         if time.time() - st.st_mtime < 15:          # 可能还在下载 / 刚写完
             continue
         info = parse_inbox_name(f.stem)
-        vid = re.sub(r"[^\w-]+", "_", info["id"])[:40] or f"f{abs(hash(f.stem)) % 10**10}"
+        vid = re.sub(r"[^\w-]+", "_", info["id"])[:40] or f"f{zlib.crc32(f.stem.encode()):010d}"
         target = dest / f"{vid}{f.suffix.lower()}"
         if target.exists():                         # 同一个编号收过了
             dup_dir.mkdir(parents=True, exist_ok=True)
