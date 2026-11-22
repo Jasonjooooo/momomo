@@ -905,7 +905,7 @@ class Api:
                 return {"ok": False, "error": "还没有选视频"}
             from tgremix.picker import pick_rules
 
-            to_x = pick_rules(self._cfg()).get("to_x") is not False
+            to_x = pick_rules(self._cfg()).get("to_x_auto") is True
             times = sorted({t for t in (times or []) if re.fullmatch(r"\d{2}:\d{2}", str(t))})
             day0 = datetime.strptime(start_day, "%Y-%m-%d")
             slots = None if times else self._slots(start_day, len(items))

@@ -338,7 +338,7 @@ td.del button:hover { background: var(--input); color: var(--err); }
     </div>
     <div class="row"><label>有这些词不要</label><input type="text" id="pBad" placeholder="用逗号隔开（色情词另外一直在挡）"></div>
     <div class="row"><label>裸露检查</label><label style="width:auto;color:var(--fg)"><input type="checkbox" data-path="pick.nsfw"> 本机看画面，露胸 / 臀 / 下体的不要（隐晦擦边可以过）</label></div>
-    <div class="row"><label>交给 X 定时</label><label style="width:auto;color:var(--fg)"><input type="checkbox" data-path="pick.to_x"> 铺进排期表以后，回关助手自动交给 X 定时（要开着 Chrome）</label></div>
+    <div class="row"><label>交给 X 定时</label><label style="width:auto;color:var(--fg)"><input type="checkbox" data-path="pick.to_x_auto"> 铺进排期表以后，回关助手马上自动交给 X 定时（默认不勾：先放在排期表里，你看过再在排期表点「把这天还没发的都交给 X 定时」）</label></div>
     <div class="row"><label>下载前打分</label><label style="width:auto;color:var(--fg)"><input type="checkbox" data-path="pick.on"> 开着（关掉就和以前一样，新视频全下载）</label></div>
   </div>
 
@@ -1439,7 +1439,7 @@ function renderPlan() {
   const toM = (t) => Number(String(t).split(":")[0]) * 60 + Number(String(t).split(":")[1] || 0);
   const slots = Math.max(0, Math.floor((toM(end) - toM(start)) / step));
   $("#pPlanTxt").textContent = `${start}–${end} 每 ${step} 分钟一格，一天 ${slots} 格，随机空出几格；那个时间排期表里已经有内容的，往后挪到下一个空格子。`
-    + (pRule("to_x", true) ? "放进去以后自动交给 X 定时。" : "放进去以后要你在排期表里点「交给 X 定时」。")
+    + (pRule("to_x_auto", false) ? "放进去以后自动交给 X 定时。" : "放进去以后要你在排期表里点「交给 X 定时」。")
     + (list.length > slots ? ` 选了 ${list.length} 条，一天放不下，多的排到第二天。` : "");
   const over = list.some((x) => xLen(x.caption) > 280);
   $("#pGo").disabled = !list.length || over;
@@ -1477,7 +1477,7 @@ $("#pGo").addEventListener("click", async () => {
   renderPlan();
   $("#pMsg").className = "msg ok";
   const days = [...new Set(r.added.map((x) => x.day.slice(5).replace("-", "/")))].join("、");
-  $("#pMsg").textContent = `✓ ${r.added.length} 条铺好了（${days}）。时间工作流一分钟内来取，交给回关助手放进排期表` + (pRule("to_x", true) ? "，再自动交给 X 定时（要开着 Chrome，大约每条 30 秒）。" : "。");
+  $("#pMsg").textContent = `✓ ${r.added.length} 条铺好了（${days}）。时间工作流一分钟内来取，交给回关助手放进排期表` + (pRule("to_x_auto", false) ? "，再自动交给 X 定时（要开着 Chrome，大约每条 30 秒）。" : "。");
   loadPosts();
 });
 $("nav button[data-page=post]").addEventListener("click", () => {

@@ -15,7 +15,7 @@ DEFAULTS = {
     "download": {"min_duration": 5, "max_duration": 300, "max_size_mb": 500, "concurrency": 3, "connections": 6},
     # 选片：下载前给 TG 视频打分，只下载合适的（比这个群平时火 N 倍以上、时长、清晰度、没有广告词），每次最多下载 max_downloads 条
     "pick": {"on": True, "min_ratio": 2.0, "min_sec": 5, "max_sec": 140, "min_short": 720, "max_downloads": 80,
-             "daily": 40, "slot_start": "09:00", "slot_end": "24:00", "slot_step": 20, "to_x": True, "nsfw": True,
+             "daily": 40, "slot_start": "09:00", "slot_end": "24:00", "slot_step": 20, "to_x_auto": False, "nsfw": True,
              "bad_words": ["加微信", "微信号", "vx", "私聊", "代理", "招商", "t.me/", "加群", "进群", "返利", "优惠券", "兼职", "博彩", "上车"],
              "times": ["12:00", "18:30", "21:30"]},
     # 发帖文案：本机 Ollama 看图模型描述画面 → DeepSeek 写（key 没填就用 AI 解说里的）
