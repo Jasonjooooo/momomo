@@ -312,14 +312,39 @@ function openInboxPage() {
 function openHotPage() {
   chrome.tabs.create({ url: chrome.runtime.getURL("hot.html") });
 }
-/* 抓取一次：开一个 X 搜索页（热门，最近 N 小时），content.js 往下翻着收，收完关掉 */
-async function hotFetch(fromTabId) {
+/* 抓取一次：X 的一个搜索页最多只给几十条，所以连着搜好几页，每页 content.js 往下翻着收：
+ * 整段时间的「热门」→ 把时间切成几段、每段各搜一次「热门」→ 最近 1 小时的「最新」。全部翻完关掉 */
+function hotPages(query, ageH) {
+  const q = (query || "lang:zh min_faves:20").trim();
+  const now = Math.floor(Date.now() / 1000), from = now - Math.round(ageH * 3600);
+  const url = (qq, tab) => "https://x.com/search?q=" + encodeURIComponent(qq) + "&src=typed_query&f=" + tab;
+  const pages = [url(`${q} since_time:${from}`, "top")];
+  const n = ageH <= 1 ? 3 : Math.min(6, Math.ceil(ageH));          // 1 小时：切成 3 段 20 分钟；6 小时：6 段
+  const step = Math.ceil((now - from) / n);
+  for (let i = 0; i < n; i++) {
+    const a = from + i * step, b = Math.min(now, a + step);
+    pages.push(url(`${q} since_time:${a} until_time:${b}`, "top"));
+  }
+  pages.push(url(`${q} since_time:${now - 3600}`, "live"));         // 最近 1 小时刚冒头的
+  return pages;
+}
+async function hotFetch(fromTabId, ageOverride) {
   const v = await chrome.storage.local.get(["hotQuery", "hotAge"]);
-  const age = Number(v.hotAge) || 6;
-  const q = `${(v.hotQuery || "lang:zh min_faves:20").trim()} since_time:${Math.floor((Date.now() - age * 36e5) / 1000)}`;
-  const tab = await chrome.tabs.create({ url: "https://x.com/search?q=" + encodeURIComponent(q) + "&src=typed_query&f=top", active: true });
-  await chrome.storage.local.set({ hotJob: { tabId: tab.id, back: fromTabId || null, at: Date.now(), rounds: 25 } });
-  return { ok: true };
+  const age = Number(ageOverride) || Number(v.hotAge) || 6;
+  const pages = hotPages(v.hotQuery, age);
+  const tab = await chrome.tabs.create({ url: pages[0], active: true });
+  await chrome.storage.local.set({ hotJob: { tabId: tab.id, back: fromTabId || null, at: Date.now(), rounds: 30, pages, idx: 0, age },
+    hotProgress: { idx: 0, total: pages.length, at: Date.now() } });
+  return { ok: true, pages: pages.length };
+}
+/* 一页翻完：还有下一页就在同一个标签页里打开，没有就收工 */
+async function hotNext(tabId) {
+  const job = (await chrome.storage.local.get(["hotJob"])).hotJob;
+  if (!job || job.tabId !== tabId) return;
+  const idx = (job.idx || 0) + 1;
+  if (!job.pages || idx >= job.pages.length) return hotDone(tabId);
+  await chrome.storage.local.set({ hotJob: { ...job, idx, at: Date.now() }, hotProgress: { idx, total: job.pages.length, at: Date.now() } });
+  try { await chrome.tabs.update(tabId, { url: job.pages[idx] }); } catch (e) { hotDone(tabId); }
 }
 async function hotDone(tabId) {
   const job = (await chrome.storage.local.get(["hotJob"])).hotJob;
@@ -350,7 +375,7 @@ chrome.alarms.onAlarm.addListener(async (a) => {
     const ij = (await chrome.storage.local.get(["inboxJob"])).inboxJob;
     if (ij && Date.now() - ij.at > 2 * 60000) inboxFinish(ij);          // 某一步卡住两分钟：收工
     const hj = (await chrome.storage.local.get(["hotJob"])).hotJob;
-    if (hj && Date.now() - hj.at > 3 * 60000) hotDone(hj.tabId);
+    if (hj && Date.now() - hj.at > 3 * 60000) hotNext(hj.tabId);     // 某一页卡住 3 分钟：跳到下一页
     const w = (await chrome.storage.local.get(["remindWorking"])).remindWorking;
     if (w && Date.now() - w > WORK_MAX_MIN * 60000) await roundDone();
     else {
@@ -382,7 +407,7 @@ chrome.runtime.onMessage.addListener((msg, _s, send) => {
   if (msg && msg.type === "xfb-media-chunk") { mediaChunk(msg.id, msg.offset, msg.len).then(send, () => send({ ok: false })); return true; }
   if (msg && msg.type === "xfb-open-schedule") { openSchedulePage(); return false; }
   if (msg && msg.type === "xfb-open-hot") { openHotPage(); return false; }
-  if (msg && msg.type === "xfb-hot-fetch") { hotFetch(_s && _s.tab ? _s.tab.id : null).then(send); return true; }
+  if (msg && msg.type === "xfb-hot-fetch") { hotFetch(_s && _s.tab ? _s.tab.id : null, msg.age).then(send); return true; }
   if (msg && msg.type === "xfb-hot-job") {
     chrome.storage.local.get(["hotJob"]).then((v) => {
       const j = v.hotJob;
@@ -390,7 +415,7 @@ chrome.runtime.onMessage.addListener((msg, _s, send) => {
     });
     return true;
   }
-  if (msg && msg.type === "xfb-hot-done") { hotDone(_s.tab && _s.tab.id); return false; }
+  if (msg && msg.type === "xfb-hot-done") { hotNext(_s.tab && _s.tab.id); return false; }
   if (msg && msg.type === "xfb-open-inbox") { openInboxPage(); return false; }
   if (msg && msg.type === "xfb-inbox-fetch") { inboxFetch(_s && _s.tab ? _s.tab.id : null).then(send); return true; }
   if (msg && msg.type === "xfb-inbox-job") {

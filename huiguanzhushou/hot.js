@@ -290,20 +290,36 @@ $("clear").addEventListener("click", async () => {
   $("clear").textContent = "清空收集的帖子";
   await chrome.storage.local.set({ hot: {} });
 });
-$("fetch").addEventListener("click", () => {
-  $("fetch").disabled = true;
-  setMsg("正在打开 X 搜索（最近几小时的热门帖），会自动往下翻 25 屏左右，收完自动关掉、回到这里。大约 1 分钟，期间别关那个页面。");
-  chrome.runtime.sendMessage({ type: "xfb-hot-fetch" }, (r) => {
-    if (!r || !r.ok) { $("fetch").disabled = false; setMsg("没能打开 X，刷新一下这个页面再试。", "err"); }
+let fetchBefore = 0;
+function startFetch(age) {
+  $("fetch").disabled = $("fetch1").disabled = true;
+  fetchBefore = Object.keys(HOT).length;
+  chrome.runtime.sendMessage({ type: "xfb-hot-fetch", age }, (r) => {
+    if (!r || !r.ok) { $("fetch").disabled = $("fetch1").disabled = false; return setMsg("没能打开 X，刷新一下这个页面再试。", "err"); }
+    setMsg(`正在抓：会连着搜 ${r.pages} 页（整段热门、按时间切开的几段热门、最近 1 小时的最新），每页往下翻 30 屏左右，`
+      + `收完自动关掉、回到这里。大约 ${Math.round(r.pages * 0.8)} 分钟，期间别关那个页面。`);
   });
+}
+$("fetch").addEventListener("click", () => startFetch());
+$("fetch1").addEventListener("click", () => {
+  $("range").value = "1";
+  if (Number($("min").value) > 2000) $("min").value = "2000";
+  chrome.storage.local.set({ hotView: { range: $("range").value, min: $("min").value, lang: $("lang").value } });
+  render();
+  startFetch(1);
 });
 chrome.storage.onChanged.addListener((ch, area) => {
   if (area !== "local") return;
   if (ch.hot) { HOT = ch.hot.newValue || {}; render(); }
   if (ch.blockWords) { BLOCK = blockOf(ch.blockWords.newValue); render(); }
+  if (ch.hotProgress && ch.hotProgress.newValue && $("fetch").disabled) {
+    const p = ch.hotProgress.newValue;
+    setMsg(`正在抓第 ${p.idx + 1} / ${p.total} 页… 这次新收了 ${Math.max(0, Object.keys(HOT).length - fetchBefore)} 条。`);
+  }
   if (ch.hotFetchedAt && ch.hotFetchedAt.newValue) {
-    $("fetch").disabled = false;
-    setMsg(`抓取完成。现在一共收了 ${Object.keys(HOT).length} 条热帖（3 天内的）。`, "ok");
+    $("fetch").disabled = $("fetch1").disabled = false;
+    setMsg(`抓取完成，这次新收了 ${Math.max(0, Object.keys(HOT).length - fetchBefore)} 条。现在一共 ${Object.keys(HOT).length} 条热帖（3 天内的）。`
+      + "（只收每小时浏览达到「收集门槛」的，门槛在「收集设置」里，想多收可以调低）", "ok");
   }
 });
 setInterval(render, 5 * 60000);

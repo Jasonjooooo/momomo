@@ -1673,11 +1673,12 @@
       for (const art of document.querySelectorAll(`${SEL.column} ${SEL.tweet}`)) { const t = readTweet(art); if (t) hotConsider(art, t); }
     };
     let idle = 0;
-    for (let i = 0; i < (r.job.rounds || 25) && idle < 3; i++) {
+    for (let i = 0; i < (r.job.rounds || 25) && idle < 4; i++) {
       grab();
       const before = document.documentElement.scrollHeight;
       window.scrollBy(0, Math.round(window.innerHeight * 0.9));
       await sleep(1500);
+      if (document.documentElement.scrollHeight <= before) await sleep(1500);     // 可能还在加载，多等一下
       idle = document.documentElement.scrollHeight > before ? 0 : idle + 1;
     }
     grab();
