@@ -231,7 +231,10 @@ async function inboxFetch(fromTabId) {
   const v = await chrome.storage.local.get(["me"]);
   const me = v.me && v.me.handle;
   if (!me) return { ok: false, reason: "还不知道你的 X 账号。先打开一次 X 网页，再回来点抓取。" };
-  const tab = await chrome.tabs.create({ url: `https://x.com/${me}`, active: true });
+  /* 抓取的标签页跟「待回复评论」页面开在同一个窗口（右下角小窗口），不动主窗口 */
+  let windowId = null;
+  try { const t = fromTabId ? await chrome.tabs.get(fromTabId) : null; windowId = t && t.windowId; } catch (e) { /* 忽略 */ }
+  const tab = await chrome.tabs.create({ url: `https://x.com/${me}`, active: true, ...(windowId ? { windowId } : {}) });
   await chrome.storage.local.set({
     inboxJob: { tabId: tab.id, back: fromTabId || null, me, phase: "profile", posts: [], idx: 0, added: 0, at: Date.now() },
     inboxProgress: { step: "profile" },
@@ -280,7 +283,10 @@ async function inboxNext(tabId, added, seenN, full) {
 async function inboxReply(fromTabId, id, text) {
   if (!id || !String(text || "").trim()) return { ok: false, reason: "回复内容是空的。" };
   const url = "https://x.com/intent/post?in_reply_to=" + encodeURIComponent(id) + "&text=" + encodeURIComponent(text);
-  const tab = await chrome.tabs.create({ url, active: true });
+  /* 回复的发帖框也跟「待回复评论」页面开在同一个窗口（右下角小窗口），发完自动关掉 */
+  let windowId = null;
+  try { const t = fromTabId ? await chrome.tabs.get(fromTabId) : null; windowId = t && t.windowId; } catch (e) { /* 忽略 */ }
+  const tab = await chrome.tabs.create({ url, active: true, ...(windowId ? { windowId } : {}) });
   await chrome.storage.local.set({ inboxSend: { tabId: tab.id, id, text, back: fromTabId || null, at: Date.now(), clicked: false } });
   return { ok: true };
 }
@@ -356,6 +362,55 @@ async function hotDone(tabId) {
 
 function openSchedulePage() {
   chrome.tabs.create({ url: chrome.runtime.getURL("schedule.html") });
+}
+
+/* ---------- 右下角窗口（定时自动互关 / 回帖专用） ----------
+ * 时间工作流到点叫「打开待关注池 / 抓取待回复评论」时，不动主窗口：
+ * 在屏幕右下角开一个 880×640 的新窗口（不抢焦点），界面在里面跑，主窗口继续后台干活。
+ * 注意：Chrome 不让窗口大半出屏（bounds 至少 50% 要在可见屏幕里），v2.32.0 试过「原大小、只露一小块、
+ * 其余溢出屏幕」，会被 Chrome 拒绝（Invalid value for bounds），所以改回整个窗口都在屏内的 880×640。
+ * 想再大一点可以，但窗口至少一半得在屏内。
+ * 同一个窗口复用：上一次的窗口还在，就按这个尺寸摆好、复用它，不攒一堆窗口。 */
+const CORNER_W = 880, CORNER_H = 640;     // 右下角窗口大小；想改大改小告诉我数字就行
+/* 右下角位置：拿屏幕工作区（扣掉菜单栏和 Dock），定位在主窗口所在的那个显示器上 */
+async function cornerGeometry() {
+  const main = await chrome.windows.getLastFocused({ windowTypes: ["normal"] }).catch(() => null);
+  let left = null, top = null;
+  try {
+    const displays = await chrome.system.display.getInfo();
+    const cx = main ? main.left + main.width / 2 : 0, cy = main ? main.top + main.height / 2 : 0;
+    const d = displays.find((x) => cx >= x.bounds.left && cx < x.bounds.left + x.bounds.width && cy >= x.bounds.top && cy < x.bounds.top + x.bounds.height) || displays[0];
+    const wa = d.workArea;
+    left = wa.left + wa.width - CORNER_W; top = wa.top + wa.height - CORNER_H;
+  } catch (e) { /* 没有 system.display 权限就退回主窗口的范围 */ }
+  if (left == null && main) { left = main.left + main.width - CORNER_W; top = main.top + main.height - CORNER_H; }
+  return { width: CORNER_W, height: CORNER_H, left, top };
+}
+async function cornerWinId() {
+  const v = await chrome.storage.local.get(["xfbCornerWin"]);
+  const id = v.xfbCornerWin;
+  if (!id) return null;
+  try { const w = await chrome.windows.get(id); return w ? id : null; }
+  catch (e) { return null; }
+}
+/* 在右下角窗口里打开 url；match 用来复用同类标签页（比如已经开着待关注池，就在那一页打开） */
+async function openCornerWindow(url, match) {
+  const g = await cornerGeometry();
+  const existing = await cornerWinId();
+  if (existing != null) {
+    try {
+      /* 沿用旧的窗口时也按 880×640 摆回右下角：之前出屏的窗口（v2.32.0）要拉回来，不然还留在屏外 */
+      await chrome.windows.update(existing, { width: g.width, height: g.height, ...(g.left != null ? { left: Math.max(0, g.left), top: Math.max(0, g.top) } : {}) });
+      const tabs = await chrome.tabs.query({ windowId: existing });
+      const hit = match && tabs.find((t) => t.url && match(t.url));
+      if (hit) { await chrome.tabs.update(hit.id, { url, active: true }); return hit; }
+      return await chrome.tabs.create({ url, windowId: existing, active: true });
+    } catch (e) { /* 窗口没了，往下新建 */ }
+  }
+  const win = await chrome.windows.create({ url, type: "normal", width: g.width, height: g.height, ...(g.left != null ? { left: Math.max(0, g.left), top: Math.max(0, g.top) } : {}), focused: false });
+  await chrome.storage.local.set({ xfbCornerWin: win.id });
+  const tabs = await chrome.tabs.query({ windowId: win.id });
+  return tabs[0] || null;
 }
 chrome.storage.onChanged.addListener((ch, area) => {
   if (area === "local" && (ch.remindOn || ch.remindMin)) arm();

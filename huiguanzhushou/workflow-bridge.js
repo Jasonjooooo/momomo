@@ -61,24 +61,18 @@ async function wfOpen() {
   }
 }
 
-/* 打开 X 首页并展开待关注池（content.js 看到 #xfb-pool 就打开池子），同时开始一轮计数。关注还是你自己按 F */
+/* 打开 X 首页并展开待关注池（content.js 看到 #xfb-pool 就打开池子），同时开始一轮计数。关注还是你自己按 F。
+ * 到点自动互关：不在主窗口里开，在屏幕右下角开一个小窗口（不抢焦点），池子在里面打开、连点器照常跑 */
 async function wfOpenPool() {
   try { await roundStart(); } catch (e) { /* 忽略 */ }
-  const url = "https://x.com/home#xfb-pool";
-  const tabs = await chrome.tabs.query({ url: ["https://x.com/home*", "https://twitter.com/home*"] });
-  if (tabs.length) {
-    await chrome.tabs.update(tabs[0].id, { url, active: true });
-    await chrome.windows.update(tabs[0].windowId, { focused: true });
-  } else {
-    const w = await chrome.windows.getLastFocused().catch(() => null);
-    await chrome.tabs.create({ url, ...(w ? { windowId: w.id } : {}) });
-    if (w) chrome.windows.update(w.id, { focused: true });
-  }
+  await openCornerWindow("https://x.com/home#xfb-pool", (u) => /https:\/\/(x\.com|twitter\.com)\/home/.test(u));
 }
 
-/* 打开「待回复评论」并开始抓取最新评论（和在那个页面点「抓取最新评论」一样），抓完回到这个页面 */
+/* 打开「待回复评论」并开始抓取最新评论（和在那个页面点「抓取最新评论」一样），抓完回到这个页面。
+ * 到点自动回帖：待回复评论页也在右下角小窗口里开，抓取的标签页跟着它走，不动主窗口 */
 async function wfInboxFetch() {
-  const tab = await chrome.tabs.create({ url: chrome.runtime.getURL("inbox.html") });
+  const tab = await openCornerWindow(chrome.runtime.getURL("inbox.html"), (u) => u.includes("inbox.html"));
+  if (!tab) return { ok: false, reason: "小窗口没打开" };
   const { inboxJob } = await chrome.storage.local.get(["inboxJob"]);
   if (inboxJob && Date.now() - (inboxJob.at || 0) < 3 * 60000) return { ok: true };     // 已经在抓了
   const r = await inboxFetch(tab.id);
