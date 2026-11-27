@@ -222,8 +222,8 @@ async def download_with_client(client, cfg: dict, state: State) -> int:
             if kind == "text":
                 _append_text(base / "文字.csv", m, text, link, tags)
                 state.mark_downloaded(key, m.id)
-            elif kind == "video" and pick_on:
-                sub = base / KIND_DIRS["video"]
+            elif kind in ("video", "photo") and pick_on:
+                sub = base / KIND_DIRS[kind]
                 dk = picker.dup_key(m)
                 if dk:
                     seen_dup.setdefault(dk, set()).add(key)
@@ -269,7 +269,7 @@ async def download_with_client(client, cfg: dict, state: State) -> int:
         for v in chosen:
             v["dir"].mkdir(parents=True, exist_ok=True)
         todo.extend(chosen)
-        log(f"🎯 选片：新视频 {len(videos)} 条，不合格 {out} 条，不够火 {weak} 条（比群里平时火不到 {prules['min_ratio']:g} 倍，先不下）；"
+        log(f"🎯 选片：新视频 / 图片 {len(videos)} 条，不合格 {out} 条，不够火 {weak} 条（比群里平时火不到 {prules['min_ratio']:g} 倍，先不下）；"
             f"下载分最高的 {len(chosen)} 条" + (f"（最多 {prules['max_downloads']} 条，其余的下次再看）" if len(good) > len(chosen) else ""))
     state.save()
     if not todo:

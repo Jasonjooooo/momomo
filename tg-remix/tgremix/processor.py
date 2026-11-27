@@ -521,7 +521,7 @@ def collect_jobs(cfg: dict) -> list[Job]:
     if not root.exists():
         return jobs
     for f in sorted(root.rglob("*")):
-        if f.suffix.lower() not in VIDEO_EXTS or ".part" in f.name:
+        if f.suffix.lower() not in (VIDEO_EXTS | picker.IMAGE_EXTS) or ".part" in f.name:
             continue
         meta_file = f.with_suffix(".json")
         meta = {}
@@ -564,6 +564,31 @@ def _append_manifest(path: Path, row: dict) -> None:
         w.writerow(row)
 
 
+def process_image(job: Job, out_dir: Path) -> Path:
+    """图片：不改画面，直接放进成品文件夹；超过 X 的 5MB 上限就压成 JPG（最长边 4096）"""
+    tags = [t for t in (job.meta.get("tags") or []) if t]
+    if tags:
+        out_dir = out_dir / re.sub(r'[\\/:*?"<>|\s]+', "_", tags[0])
+    out_dir.mkdir(parents=True, exist_ok=True)
+    src_name = job.meta.get("channel_title") or job.meta["channel"]
+    name = re.sub(r'[\\/:*?"<>|\s]+', "_", f"{src_name}_{job.meta['id']}")[:80]
+    ext = job.src.suffix.lower().replace(".jpeg", ".jpg")
+    if job.src.stat().st_size <= 5 * 1000 * 1000 and ext in (".jpg", ".png", ".webp"):
+        out = out_dir / f"{name}{ext}"
+        shutil.copyfile(job.src, out)
+        return out
+    out = out_dir / f"{name}.jpg"
+    for side, q in ((4096, 3), (4096, 6), (2560, 5), (1920, 6), (1280, 8)):    # 先降画质，还不行再缩小
+        r = subprocess.run([ffmpeg_bin("ffmpeg"), "-v", "error", "-y", "-i", str(job.src), "-frames:v", "1",
+                            "-vf", f"scale='min({side},iw)':'min({side},ih)':force_original_aspect_ratio=decrease",
+                            "-q:v", str(q), str(out)], capture_output=True, text=True)
+        if r.returncode != 0:
+            raise ProcessError(f"图片转换失败：{r.stderr.strip()[-200:]}")
+        if out.stat().st_size <= 5 * 1000 * 1000:
+            return out
+    return out
+
+
 def process_one(job: Job, cfg: dict, font: str | None, out_dir: Path, seconds: float | None = None) -> Path:
     tags = [t for t in (job.meta.get("tags") or []) if t]
     if tags:  # 成品按第一个标签分文件夹
@@ -583,7 +608,7 @@ def process_one(job: Job, cfg: dict, font: str | None, out_dir: Path, seconds: f
 def _write_out_meta(out: Path, job: Job, fp) -> None:
     """成品旁边放一个 .json：来源、推荐分、文案草稿，「发帖」页用"""
     try:
-        dur = probe(out).duration
+        dur = 0.0 if picker.is_image(out) else probe(out).duration
     except Exception:  # noqa: BLE001
         dur = 0.0
     pick = job.meta.get("pick") or {"score": 50, "reasons": [["", "没有热度数据（以前下载的 / 本地视频）"]], "out": False, "source": "local"}
@@ -675,13 +700,13 @@ def process_all(cfg: dict, state: State, redo: bool = False, limit: int | None =
                 fp = None
             same = picker.find_same(state.data, fp, job.key) if fp else None
             if same:
-                log(f"    ⏭ 和 {same.get('k')} 是同一个视频" + ("（已经发过了）" if same.get("posted") else "") + "，跳过")
+                log(f"    ⏭ 和 {same.get('k')} 是同一个" + ("图片" if picker.is_image(job.src) else "视频") + ("（已经发过了）" if same.get("posted") else "") + "，跳过")
                 state.mark_processed(job.key)
                 state.save()
                 skipped += 1
                 continue
         try:
-            out = process_one(job, cfg, font, out_dir, seconds)
+            out = process_image(job, out_dir) if picker.is_image(job.src) else process_one(job, cfg, font, out_dir, seconds)
         except ProcessError as e:
             log(f"    ❌ 失败：{e}")
             continue

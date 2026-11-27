@@ -4,7 +4,7 @@
  *   发帖排期表（前 1 天到后 8 天）、今天回复数和目标、待回复评论数、找互关帖提醒的倒计时。
  * 数据一变就发，另外每分钟发一次，让它知道回关助手还在运行。没装时间工作流就什么都不做。
  * 它只能叫这里：打开排期表、打开待回复评论（可以顺便点「抓取最新评论」）、把某一格交给 X 定时、打开某一格的发帖框、打开待关注池。
- * 还能接收 TG二创「发帖」页挑好的视频和文案，放进发帖排期表（视频存进 media-db.js 的 IndexedDB，和你手动加的一样）。
+ * 还能接收 TG二创「发帖」页挑好的视频 / 图片和文案，放进发帖排期表（视频存进 media-db.js 的 IndexedDB，和你手动加的一样）。
  *
  * 用到 background.js 里的：dateKey、SCHED_ALARM、openSchedulePage、openInboxPage、scheduleOnX、openSlot、roundStart、inboxFetch，
  * media-db.js 里的：mediaPut、mediaDel */
@@ -154,7 +154,7 @@ async function wfPost(msg) {
   }
   const v = await chrome.storage.local.get(["schedule"]);
   const sched = v.schedule || {};
-  (sched[slot.day] ||= {})[slot.hm] = { text: String(p.text || ""), status: "", imgs: 1, vid: true, from: "TG二创" };
+  (sched[slot.day] ||= {})[slot.hm] = { text: String(p.text || ""), status: "", imgs: 1, vid: /^video\//.test(type), from: "TG二创" };
   await chrome.storage.local.set({ schedule: sched });
   return { ok: true, day: slot.day, hm: slot.hm };
 }

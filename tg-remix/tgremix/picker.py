@@ -21,6 +21,11 @@ from pathlib import Path
 from .runtime import ffmpeg_bin, log
 
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".webm", ".m4v"}
+IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+
+
+def is_image(p) -> bool:
+    return Path(str(p)).suffix.lower() in IMAGE_EXTS
 # 色情词：不管设置里的「有这些词不要」怎么改，这些一直挡（画面另外有裸露检查）
 PORN_WORDS = ["约炮", "福利姬", "成人视频", "成人内容", "18禁", "18+", "🔞", "无码", "有码", "裸聊", "裸体", "全裸", "露点",
               "色情", "黄片", "黄色视频", "援交", "上门服务", "特殊服务", "onlyfans", "反差婊", "做爱", "啪啪", "约啪",
@@ -138,7 +143,9 @@ def score_tg(m, text: str, baseline: float | None, dup_n: int, rules: dict) -> d
         s += min(16, 8 * (dup_n - 1))
         reasons.append(["g", f"{dup_n} 个群都在发"])
     short = _short_side(m)
-    if short and short < rules["min_short"]:
+    if getattr(m, "photo", None) is not None and not dur:
+        reasons.append(["", "图片"])
+    elif short and short < rules["min_short"]:
         s -= 15
         reasons.append(["", f"{dur:.0f} 秒 · {short}p，有点糊"])
     elif dur or short:
@@ -167,10 +174,12 @@ def _res_short(res: str) -> int:
     return min(int(m.group(1)), int(m.group(2))) if m else 0
 
 
-def score_inbox(info: dict, dur: float, short: int, rules: dict) -> dict:
+def score_inbox(info: dict, dur: float, short: int, rules: dict, image: bool = False) -> dict:
     reasons = [["g", "你自己挑的"]]
     out = False
     s = 72.0
+    if image:
+        dur = 0.0                                   # 图片没有时长，不按时长筛
     if dur and dur < rules["min_sec"]:
         out = True
         reasons.append(["b", f"✗ 太短（{dur:.0f} 秒）"])
@@ -185,7 +194,9 @@ def score_inbox(info: dict, dur: float, short: int, rules: dict) -> dict:
     elif bad:
         out = True
         reasons.append(["b", f"✗ 有广告词「{bad}」"])
-    if short and short < rules["min_short"]:
+    if image:
+        reasons.append(["", "图片" + (f" · {short}p" if short else "")])
+    elif short and short < rules["min_short"]:
         s -= 15
         reasons.append(["", f"{dur:.0f} 秒 · {short}p，有点糊"])
     else:
@@ -208,7 +219,7 @@ def collect_inbox(cfg: dict, dl_root: Path) -> int:
     dup_dir = src_dir / "已导入过的重复视频"
     n = 0
     for f in sorted(src_dir.rglob("*")):
-        if not f.is_file() or f.suffix.lower() not in VIDEO_EXTS or dup_dir in f.parents:
+        if not f.is_file() or f.suffix.lower() not in (VIDEO_EXTS | IMAGE_EXTS) or dup_dir in f.parents:
             continue
         try:
             st = f.stat()
@@ -218,20 +229,20 @@ def collect_inbox(cfg: dict, dl_root: Path) -> int:
             continue
         info = parse_inbox_name(f.stem)
         vid = re.sub(r"[^\w-]+", "_", info["id"])[:40] or f"f{zlib.crc32(f.stem.encode()):010d}"
-        target = dest / f"{vid}{f.suffix.lower()}"
+        target = (dest.parent / "图片" if is_image(f) else dest) / f"{vid}{f.suffix.lower()}"
         if target.exists():                         # 同一个编号收过了
             dup_dir.mkdir(parents=True, exist_ok=True)
             shutil.move(str(f), str(dup_dir / f.name))
             log(f"  ⏭ 收件箱：{f.name} 收过了，挪到「已导入过的重复视频」")
             continue
-        dest.mkdir(parents=True, exist_ok=True)
+        target.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(f), str(target))
         try:
             mi = probe(target)
             dur, short = mi.duration, min(mi.width, mi.height)
         except Exception:  # noqa: BLE001
             dur, short = 0.0, _res_short(info["res"])
-        pick = score_inbox(info, dur, short or _res_short(info["res"]), rules)
+        pick = score_inbox(info, dur, short or _res_short(info["res"]), rules, image=is_image(target))
         meta = {"channel": INBOX_CHANNEL, "channel_title": INBOX_CHANNEL, "id": vid, "text": info["title"], "link": "",
                 "file": target.name, "kind": "video", "tags": [], "pick": pick, "imported": datetime.now().isoformat(timespec="seconds")}
         target.with_suffix(".json").write_text(json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -258,6 +269,20 @@ def pick_rules(cfg: dict) -> dict:
 def fingerprint(path: Path, duration: float) -> list[int] | None:
     """取 15% / 50% / 85% 三帧，缩成 9×8 灰度算 dHash（64 位）。画面一样、只是大小 / 清晰度 / 水印不同，指纹也接近"""
     out = []
+    if is_image(path):                       # 图片：就一帧，算一次重复三遍（和视频的格式一样）
+        try:
+            r = subprocess.run([ffmpeg_bin("ffmpeg"), "-v", "error", "-i", str(path), "-frames:v", "1",
+                                "-vf", "scale=9:8,format=gray", "-f", "rawvideo", "-"], capture_output=True, timeout=60)
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        px = r.stdout
+        if len(px) < 72:
+            return None
+        h = 0
+        for y in range(8):
+            for x in range(8):
+                h = (h << 1) | (1 if px[y * 9 + x] > px[y * 9 + x + 1] else 0)
+        return [h, h, h]
     for pos in (0.15, 0.5, 0.85):
         t = max(0.0, duration * pos) if duration else 0.5
         try:

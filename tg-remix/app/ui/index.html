@@ -1397,7 +1397,7 @@ function renderPosts() {
     const th = document.createElement("div"); th.className = "th"; if (it.thumb) th.style.backgroundImage = `url("${it.thumb}")`;
     const sc = document.createElement("span"); sc.className = "sc" + (it.out ? " low" : it.score < 70 ? " mid" : ""); sc.textContent = it.out ? "不推荐" : "推荐 " + it.score;
     const ck = document.createElement("span"); ck.className = "ck"; ck.textContent = pSel.has(it.id) ? "✓" : "";
-    const du = document.createElement("span"); du.className = "du"; du.textContent = `${Math.floor(it.duration / 60)}:${String(Math.round(it.duration % 60)).padStart(2, "0")} · ${it.size_mb} MB`;
+    const du = document.createElement("span"); du.className = "du"; du.textContent = it.kind === "photo" ? `🖼 图片 · ${it.size_mb} MB` : `${Math.floor(it.duration / 60)}:${String(Math.round(it.duration % 60)).padStart(2, "0")} · ${it.size_mb} MB`;
     th.append(ck, sc, du);
     th.title = it.out ? "不推荐的不能选" : "点一下选中 / 取消";
     th.addEventListener("click", () => {

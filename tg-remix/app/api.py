@@ -130,6 +130,9 @@ def _friendly(e: BaseException) -> str:
     return f"{name}：{msg}"
 
 
+
+POST_EXTS = {".mp4": "video/mp4", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}   # 发帖页认的成品：视频和图片
+
 class Api:
     def __init__(self, root: Path, ffmpeg_dir: Path | None):
         self._root = root
@@ -711,7 +714,7 @@ class Api:
         for d in sorted(root.iterdir()) if root.exists() else []:
             if not d.is_dir() or d.name < cut or d.name == "试效果":
                 continue
-            for f in d.rglob("*.mp4"):
+            for f in sorted(x for x in d.rglob("*") if x.suffix.lower() in POST_EXTS):
                 mf = f.with_suffix(".json")
                 if not mf.exists():
                     continue
@@ -732,7 +735,7 @@ class Api:
         cache.mkdir(exist_ok=True)
         t = cache / (hashlib.md5(str(f).encode("utf-8")).hexdigest() + ".jpg")
         if not t.exists():
-            subprocess.run([ffmpeg_bin("ffmpeg"), "-v", "error", "-y", "-ss", "1", "-i", str(f), "-frames:v", "1",
+            subprocess.run([ffmpeg_bin("ffmpeg"), "-v", "error", "-y", *([] if f.suffix.lower() != ".mp4" else ["-ss", "1"]), "-i", str(f), "-frames:v", "1",
                             "-vf", "scale=360:-2", "-q:v", "5", str(t)], capture_output=True, timeout=60)
         return "data:image/jpeg;base64," + base64.b64encode(t.read_bytes()).decode() if t.exists() else ""
 
@@ -869,6 +872,8 @@ class Api:
         from tgremix import caption as cap
 
         m, f = it["meta"], it["f"]
+        if f.suffix.lower() != ".mp4":            # 图片：AI 文案只会看视频，图片先用原帖文字
+            return {"ok": False, "error": "图片先不用 AI 写文案"}
         try:
             r = cap.write(f, float(m.get("duration") or 0), m.get("text") or m.get("title") or "", cfg, self._examples(cfg))
         except cap.CaptionError as e:
@@ -917,6 +922,7 @@ class Api:
                             "channel": m.get("channel_title", ""), "tags": m.get("tags") or [], "score": p.get("score", 50),
                             "out": bool(p.get("out")), "reasons": p.get("reasons") or [], "views": p.get("views") or 0,
                             "source": p.get("source", ""), "duration": m.get("duration", 0),
+                            "kind": "photo" if f.suffix.lower() != ".mp4" else "video",
                             "size_mb": round(f.stat().st_size / 1048576, 1), "caption": self._caption(m), "post": m.get("post"),
                             "ready": it["id"] in ready, "ai": m.get("caption_ai") or None, "thumb": self._thumb(f)})
             out.sort(key=lambda x: (x["out"], bool(x["post"]), -x["score"]))
@@ -930,7 +936,7 @@ class Api:
     def _meta_path(self, item_id: str) -> Path:
         root = self._out_root().resolve()
         f = (root / item_id).resolve()
-        if root not in f.parents or f.suffix != ".mp4" or not f.exists():
+        if root not in f.parents or f.suffix.lower() not in POST_EXTS or not f.exists():
             raise UserError("找不到这个成品，可能被删了或者挪走了")
         return f
 
@@ -1107,7 +1113,8 @@ class Api:
                     j["status"] = "waiting"          # 上次传到一半断了：重新来
                 if j["status"] == "waiting" and Path(j["file"]).exists():
                     out.append({"qid": j["qid"], "name": Path(j["file"]).name, "size": Path(j["file"]).stat().st_size,
-                                "type": "video/mp4", "text": j["text"], "day": j["day"], "hm": j["hm"], "toX": j.get("to_x", False)})
+                                "type": POST_EXTS.get(Path(j["file"]).suffix.lower(), "video/mp4"), "text": j["text"], "day": j["day"], "hm": j["hm"],
+                                "toX": j.get("to_x", False)})
             return out
 
     def _postq_file(self, qid: str) -> Path | None:

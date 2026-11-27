@@ -116,6 +116,9 @@ def _square_rgb(path: Path, t: float | None):
 def _frames(path: Path, duration: float, n: int) -> list[tuple[float, bytes]]:
     """均匀取 n 帧（避开开头结尾 5%），每帧补成正方形再缩到 320×320，返回 RGB 原始数据"""
     out = []
+    if Path(path).suffix.lower() in {".jpg", ".jpeg", ".png", ".webp"}:     # 图片：就看这一张
+        img = _square_rgb(path, None)
+        return [(0.0, _resize_linear(img, SIZE).tobytes())] if img is not None else []
     for i in range(n):
         t = duration * (0.05 + 0.9 * (i + 0.5) / n) if duration else 0.5 * i
         try:
