@@ -39,32 +39,72 @@ class SenderPool:
         c = self.client
         dc = await c._get_dc(self.dc_id)
         same_dc = self.dc_id == c.session.dc_id
-        for _ in range(self.size):
+        last = None
+        # 一条一条建，中间歇一下（一下子开太多，Telegram / 代理会直接断开，报 IncompleteReadError）；
+        # 建不上的跳过，有一条能用就行
+        for i in range(self.size):
             sender = MTProtoSender(c.session.auth_key if same_dc else None, loggers=c._log)
-            await sender.connect(c._connection(dc.ip_address, dc.port, dc.id, loggers=c._log,
-                                               proxy=c._proxy, local_addr=c._local_addr))
-            if not same_dc:  # 别的 DC 要导入登录授权
-                auth = await c(functions.auth.ExportAuthorizationRequest(self.dc_id))
-                c._init_request.query = functions.auth.ImportAuthorizationRequest(id=auth.id, bytes=auth.bytes)
-                await sender.send(functions.InvokeWithLayerRequest(LAYER, c._init_request))
+            try:
+                await asyncio.wait_for(sender.connect(c._connection(dc.ip_address, dc.port, dc.id, loggers=c._log,
+                                                                    proxy=c._proxy, local_addr=c._local_addr)), 20)
+                if not same_dc:  # 别的 DC 要导入登录授权
+                    auth = await c(functions.auth.ExportAuthorizationRequest(self.dc_id))
+                    c._init_request.query = functions.auth.ImportAuthorizationRequest(id=auth.id, bytes=auth.bytes)
+                    await asyncio.wait_for(sender.send(functions.InvokeWithLayerRequest(LAYER, c._init_request)), 20)
+            except Exception as e:  # noqa: BLE001
+                last = e
+                try:
+                    await sender.disconnect()
+                except Exception:  # noqa: BLE001
+                    pass
+                await asyncio.sleep(1)
+                continue
             self.senders.append(sender)
             self.queue.put_nowait(sender)
+            if i + 1 < self.size:
+                await asyncio.sleep(0.3)
+        if not self.senders:
+            raise FastDownloadError(f"一条连接都建不上（{type(last).__name__}）") from last
 
     async def get_part(self, location, offset: int) -> bytes:
         from telethon.tl import functions, types
 
-        sender = await self.queue.get()
-        try:
-            r = await sender.send(functions.upload.GetFileRequest(location=location, offset=offset, limit=PART,
-                                                                  precise=False, cdn_supported=False))
-        finally:
-            self.queue.put_nowait(sender)
-        if isinstance(r, types.upload.FileCdnRedirect):
-            raise FastDownloadError("文件在 CDN 上，不支持多连接")
-        return r.bytes
+        err = None
+        for attempt in range(3):              # 取失败就换一条连接再试，最多 3 次
+            if not self.senders:
+                break
+            sender = await self.queue.get()
+            if sender is None:                # 连接全断了：叫醒排队的其他块，一起报错
+                self.queue.put_nowait(None)
+                break
+            ok = False
+            try:
+                r = await asyncio.wait_for(sender.send(functions.upload.GetFileRequest(
+                    location=location, offset=offset, limit=PART, precise=False, cdn_supported=False)), 60)
+                ok = True
+            except Exception as e:  # noqa: BLE001
+                err = e
+                if not sender.is_connected() and sender in self.senders:   # 断掉的连接不再用
+                    self.senders.remove(sender)
+                    try:
+                        await sender.disconnect()
+                    except Exception:  # noqa: BLE001
+                        pass
+                    sender = None
+                    if not self.senders:
+                        self.queue.put_nowait(None)
+                await asyncio.sleep(0.5 * (attempt + 1))
+            finally:
+                if sender is not None:
+                    self.queue.put_nowait(sender)
+            if ok:
+                if isinstance(r, types.upload.FileCdnRedirect):
+                    raise FastDownloadError("文件在 CDN 上，不支持多连接")
+                return r.bytes
+        raise FastDownloadError(f"这一块取了 3 次都失败（{type(err).__name__}）" if err else "连接全断了") from err
 
     async def close(self) -> None:
-        for s in self.senders:
+        for s in list(self.senders):
             try:
                 await s.disconnect()
             except Exception:  # noqa: BLE001

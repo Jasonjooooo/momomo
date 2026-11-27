@@ -288,7 +288,7 @@ async def download_todo(client, cfg: dict, state: State, todo: list) -> int:
     parallel = max(1, min(8, int(rules.get("concurrency") or 3)))
     total_mb = sum(((t["m"].file.size if t["m"].file else 0) or 0) for t in todo) / 1048576
     conns = int(rules.get("connections", 6) or 0)
-    fast = {"on": conns > 1, "fd": None}
+    fast = {"on": conns > 1, "fd": None, "fails": 0}
     if fast["on"]:
         from .fastdl import FastDownloader
 
@@ -324,12 +324,16 @@ async def download_todo(client, cfg: dict, state: State, todo: list) -> int:
                     try:
                         await fast["fd"].download(m.document, part, m.file.size, sp.cb((t["key"], m.id)))
                         done, how = True, "多连接"
+                        fast["fails"] = 0
                     except Cancelled:
                         raise
-                    except Exception as e:  # noqa: BLE001  多连接不行就退回普通下载，本次不再尝试
-                        if fast["on"]:
+                    except Exception as e:  # noqa: BLE001  多连接不行：这个文件改用普通方式；连着失败 3 次，这次就都不用了
+                        fast["fails"] += 1
+                        if fast["fails"] >= 3 and fast["on"]:
                             fast["on"] = False
-                            log(f"  ⚠️ 多连接下载不可用（{type(e).__name__}：{str(e)[:80]}），改用普通方式")
+                            log(f"  ⚠️ 多连接下载连着失败 {fast['fails']} 次（{type(e).__name__}：{str(e)[:80]}），这次剩下的都用普通方式")
+                        elif fast["on"]:
+                            log(f"  ↪️ #{m.id} 多连接没成功（{type(e).__name__}），这个改用普通方式")
                         part.unlink(missing_ok=True)
                         sp.bytes[(t["key"], m.id)] = 0
                 if not done and getattr(m, "document", None) is not None:
