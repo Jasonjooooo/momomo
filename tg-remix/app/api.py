@@ -749,6 +749,10 @@ class Api:
     @staticmethod
     def _original(meta: dict) -> str:
         raw = str(meta.get("text") or meta.get("title") or "")
+        if not raw.strip() and meta.get("src"):              # 以前处理的、没有帖子文字的：从原文件名里拿标题
+            from tgremix.processor import title_from_name
+
+            raw = title_from_name(str(meta["src"]).replace("\\", "/").split("/")[-1])
         lines = []
         for line in raw.splitlines():
             if Api.PROMO.search(line):

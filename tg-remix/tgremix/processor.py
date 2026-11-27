@@ -535,8 +535,19 @@ def collect_jobs(cfg: dict) -> list[Job]:
         meta.setdefault("id", f.stem)
         meta.setdefault("text", "")
         meta.setdefault("link", "")
+        if not str(meta.get("text") or "").strip():
+            meta["text"] = title_from_name(f.stem)          # 没有帖子文字：用文件名里的标题（智Tool 下载的「编号__清晰度__标题」）
         jobs.append(Job(f, meta, str(rel.with_suffix(""))))
     return jobs
+
+
+def title_from_name(stem: str) -> str:
+    """文件名 → 标题：「6af3…__720p__乘客试图阻止航班起飞」→「乘客试图阻止航班起飞」；纯编号的返回空"""
+    from .picker import parse_inbox_name
+
+    t = parse_inbox_name(stem)["title"]
+    t = re.sub(r"[_\s]+", " ", t).strip()
+    return "" if re.fullmatch(r"[0-9a-fA-F \-]*|(?:IMG|VID|video|Video)[ ]?\d+", t) else t
 
 
 def _append_manifest(path: Path, row: dict) -> None:
